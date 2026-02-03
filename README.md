@@ -2,16 +2,16 @@
 
 **Subdomain Takeover Vulnerability Scanner**
 
-SubVet scans subdomains for potential takeover vulnerabilities by checking DNS records and HTTP responses against a database of 40+ service fingerprints.
+Fast, accurate subdomain takeover detection with 80+ service fingerprints, confidence scoring, and comprehensive DNS checks.
 
 ## Features
 
-- 🎯 **80+ Service Fingerprints** - AWS S3/CloudFront/Amplify, Azure, Cloudflare Pages, GitHub Pages, Heroku, Shopify, and more
+- 🎯 **80+ Service Fingerprints** - AWS, Azure, GCP, GitHub Pages, Heroku, Vercel, Shopify, and more
+- 🧠 **Confidence Scoring** - Weighted rules reduce false positives
+- 🔐 **DNS Security Checks** - NS/MX/SPF/SRV dangling detection
 - ⚡ **Fast Concurrent Scanning** - Configurable parallelism
-- 📊 **JSON Output** - Easy integration with other tools
-- 🔍 **DNS + HTTP Probing** - Comprehensive detection
-- 🛡️ **CNAME Chain Following** - Detect dangling records
-- 🔐 **NS Delegation Check** - Detect dangling nameservers (critical risk)
+- 📊 **Multiple Output Formats** - JSON, Markdown, HTML reports
+- 🛡️ **CNAME Chain Following** - Detect deeply nested dangling records
 
 ## Installation
 
@@ -19,9 +19,7 @@ SubVet scans subdomains for potential takeover vulnerabilities by checking DNS r
 npm install -g subvet
 ```
 
-## Usage
-
-### Quick Check
+## Quick Start
 
 ```bash
 # Check a single subdomain
@@ -32,28 +30,24 @@ subvet scan -f subdomains.txt
 
 # Pipe from other tools
 subfinder -d example.com | subvet scan --stdin
+
+# Generate HTML report
+subvet scan -f targets.txt --report html > report.html
 ```
 
-### Commands
+## Commands
+
+### scan
+
+Scan subdomains with JSON output (default).
 
 ```bash
-# Scan with JSON output
 subvet scan example.com
-
-# Scan from file
 subvet scan -f targets.txt --concurrency 20
-
-# Human-readable single check
-subvet check cdn.example.com
-
-# List supported services
-subvet services
-
-# Show fingerprint for a service
-subvet fingerprint "GitHub Pages"
+subvet scan --stdin < subdomains.txt
 ```
 
-### Options
+**Options:**
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -62,78 +56,101 @@ subvet fingerprint "GitHub Pages"
 | `-t, --timeout <ms>` | Request timeout | 10000 |
 | `-c, --concurrency <n>` | Parallel requests | 10 |
 | `--no-http` | Skip HTTP probing | false |
-| `--check-ns` | Check for dangling NS delegation | false |
-| `--check-mx` | Check for dangling MX records | false |
-| `--check-spf` | Check for dangling SPF includes | false |
-| `--check-srv` | Check for dangling SRV records | false |
-| `-v, --verbose` | Show progress | false |
+| `--check-ns` | Check NS delegation | false |
+| `--check-mx` | Check MX records | false |
+| `--check-spf` | Check SPF includes | false |
+| `--check-srv` | Check SRV records | false |
+| `--report <format>` | Output format (json/md/html) | json |
+| `--summary` | Summary only | false |
 | `--pretty` | Pretty print JSON | false |
-| `--summary` | Show summary only | false |
+| `-v, --verbose` | Show progress | false |
 
-## Output Format
+### check
+
+Human-readable single subdomain check.
+
+```bash
+subvet check cdn.example.com
+subvet check cdn.example.com --check-ns --check-mx
+```
+
+### services
+
+List all supported services.
+
+```bash
+subvet services
+```
+
+### fingerprint
+
+Show fingerprint details for a service.
+
+```bash
+subvet fingerprint "AWS S3"
+subvet fingerprint "GitHub Pages"
+```
+
+## Output
+
+### JSON (default)
 
 ```json
 {
-  "version": "0.1.0",
-  "timestamp": "2024-01-15T12:00:00.000Z",
-  "target": "shop.example.com",
+  "version": "0.5.0",
+  "timestamp": "2026-02-04T00:00:00.000Z",
   "summary": {
     "total": 1,
     "vulnerable": 1,
     "likely": 0,
     "potential": 0,
-    "safe": 0,
-    "errors": 0
+    "safe": 0
   },
-  "results": [
-    {
-      "subdomain": "shop.example.com",
-      "status": "vulnerable",
-      "service": "Shopify",
-      "cname": "shops.myshopify.com",
-      "evidence": [
-        "CNAME points to Shopify: shops.myshopify.com",
-        "HTTP body matches: \"Sorry, this shop is currently unavailable\""
-      ],
-      "risk": "critical",
-      "poc": "Create Shopify store and add custom domain"
-    }
-  ]
+  "results": [{
+    "subdomain": "shop.example.com",
+    "status": "vulnerable",
+    "service": "Shopify",
+    "risk": "critical",
+    "evidence": [
+      "CNAME points to Shopify: shops.myshopify.com",
+      "HTTP body matches: \"Sorry, this shop is currently unavailable\"",
+      "Confidence: 10/10"
+    ],
+    "poc": "Create Shopify store and add custom domain"
+  }]
 }
 ```
 
-## Status Levels
+### Status Levels
 
-| Status | Description | Exit Code |
-|--------|-------------|-----------|
-| `vulnerable` | Confirmed takeover possible | 2 |
-| `likely` | High probability (NXDOMAIN + known service) | 1 |
-| `potential` | Needs manual verification | 0 |
-| `not_vulnerable` | Properly configured | 0 |
+| Status | Risk | Description | Exit Code |
+|--------|------|-------------|-----------|
+| `vulnerable` | critical | Confirmed takeover possible | 2 |
+| `likely` | high | High probability (NXDOMAIN + known service) | 1 |
+| `potential` | medium | Needs manual verification | 0 |
+| `not_vulnerable` | info | Properly configured | 0 |
 
-## NS Delegation Check
+## DNS Security Checks
 
-Dangling NS records are **critical** vulnerabilities. When a subdomain delegates DNS to a nameserver that no longer exists, an attacker can register that nameserver domain and gain full control.
+### NS Delegation (`--check-ns`)
+
+Dangling NS records are **critical** - attackers can register the nameserver domain and gain full DNS control.
 
 ```bash
-# Check for dangling NS delegation
 subvet scan example.com --check-ns
-
-# Example output for vulnerable subdomain
-{
-  "status": "vulnerable",
-  "service": "NS Delegation",
-  "evidence": ["Dangling NS delegation: ns1.defunct-provider.com"],
-  "risk": "critical",
-  "poc": "Register the dangling nameserver domain and configure DNS zone"
-}
 ```
 
-**Why it's critical:**
-- Attacker gains full DNS control over the subdomain
-- Can create any record (A, MX, TXT, etc.)
-- Enables email interception, phishing, and more
-- Often overlooked in traditional CNAME scanning
+### MX Records (`--check-mx`)
+
+Dangling MX records allow email interception.
+
+### SPF Includes (`--check-spf`)
+
+Dangling SPF includes enable email spoofing.
+
+### SRV Records (`--check-srv`)
+
+Dangling SRV records can hijack services (autodiscover, SIP, etc.).
 
 ## Supported Services
 
@@ -141,27 +158,34 @@ subvet scan example.com --check-ns
 <summary>Click to expand (80+ services)</summary>
 
 **Cloud Platforms:**
-- AWS S3, Elastic Beanstalk, CloudFront
-- Azure (Web Apps, Blob, CDN, etc.)
-- Google Cloud Storage
-- Cloudflare Pages
+- AWS S3, Elastic Beanstalk, CloudFront, Amplify
+- Azure (Web Apps, Blob, CDN, Traffic Manager)
+- Google Cloud Storage, Cloud Run
+- DigitalOcean App Platform
 
-**Hosting:**
+**Hosting & CDN:**
 - GitHub Pages, GitLab Pages
 - Heroku, Vercel, Netlify
-- Surge.sh, Fly.io, Render, Railway
+- Cloudflare Pages, Fastly
+- Fly.io, Render, Railway
+
+**Website Builders:**
+- Webflow, Wix, Squarespace
+- Framer, Carrd, Bubble
+- Ghost, Tumblr, WordPress.com
 
 **E-commerce:**
 - Shopify, BigCommerce
 
-**Marketing & CMS:**
-- Webflow, Ghost, Tumblr, WordPress.com
-- Unbounce, HubSpot, Wix
-
-**Support:**
+**Support & Helpdesk:**
 - Zendesk, Freshdesk, Intercom
+- Help Scout, Canny, UserVoice
 
-...and more!
+**Developer Tools:**
+- Bitbucket, Statuspage
+- Readme.io, Gitbook, Hashnode
+
+...and many more!
 
 </details>
 
@@ -172,13 +196,13 @@ import { Scanner, quickScan, listServices } from 'subvet';
 
 // Quick scan
 const results = await quickScan(['sub.example.com']);
-console.log(results.summary);
 
 // Custom options
 const scanner = new Scanner({
   concurrency: 20,
   timeout: 5000,
-  httpProbe: true
+  nsCheck: true,
+  mxCheck: true
 });
 
 const output = await scanner.scan(subdomains);
@@ -190,28 +214,15 @@ if (result.status === 'vulnerable') {
 }
 ```
 
-## Integration Examples
-
-### With subfinder
-
-```bash
-subfinder -d example.com -silent | subvet scan --stdin -o results.json
-```
-
-### With jq
-
-```bash
-subvet scan -f subs.txt | jq '.results[] | select(.status == "vulnerable")'
-```
-
-### In CI/CD
+## CI/CD Integration
 
 ```yaml
+# GitHub Actions
 - name: Check for subdomain takeovers
   run: |
-    subvet scan -f subdomains.txt
+    npx subvet scan -f subdomains.txt --check-ns
     if [ $? -eq 2 ]; then
-      echo "Critical: Vulnerable subdomains found!"
+      echo "::error::Vulnerable subdomains found!"
       exit 1
     fi
 ```
@@ -224,20 +235,19 @@ src/
 ├── scanner.ts          # Main scanning logic
 ├── dns.ts              # DNS resolution
 ├── http.ts             # HTTP probing
-├── types.ts            # TypeScript definitions
+├── report.ts           # Report generation
 ├── utils.ts            # Utility functions
-├── report.ts           # Report generation (JSON/HTML/MD)
-├── fingerprints/
-│   ├── index.ts        # Combined exports
-│   ├── cloud.ts        # AWS, Azure, GCP
-│   ├── hosting.ts      # GitHub Pages, Vercel, Netlify...
-│   ├── website-builders.ts  # Webflow, Wix, Framer...
-│   ├── ecommerce.ts    # Shopify, BigCommerce
-│   ├── support.ts      # Zendesk, Freshdesk, Intercom...
-│   ├── marketing.ts    # HubSpot, Campaign Monitor...
-│   ├── devtools.ts     # Bitbucket, Statuspage, Ngrok...
-│   └── misc.ts         # Regional & niche services
-└── __tests__/          # Test files
+├── types.ts            # TypeScript definitions
+└── fingerprints/
+    ├── index.ts        # Combined exports
+    ├── cloud.ts        # AWS, Azure, GCP
+    ├── hosting.ts      # GitHub Pages, Vercel...
+    ├── website-builders.ts
+    ├── ecommerce.ts
+    ├── support.ts
+    ├── marketing.ts
+    ├── devtools.ts
+    └── misc.ts
 ```
 
 ## Contributing
@@ -247,14 +257,14 @@ Fingerprints are based on [can-i-take-over-xyz](https://github.com/EdOverflow/ca
 To add a new service:
 
 1. Find the appropriate category in `src/fingerprints/`
-2. Add your fingerprint with:
-   - `cnames`: CNAME patterns (glob-like)
+2. Add fingerprint with:
+   - `cnames`: CNAME patterns (glob: `*.example.com`)
    - `fingerprints`: Detection rules with `weight` and `required`
    - `negativePatterns`: Patterns indicating NOT vulnerable
    - `takeoverPossible`: Boolean
-   - `poc`: How to exploit
+   - `poc`: Exploitation steps
 3. Run tests: `npm test`
-4. Submit a PR
+4. Submit PR
 
 ## License
 
