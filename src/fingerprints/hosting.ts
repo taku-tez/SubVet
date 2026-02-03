@@ -1,0 +1,244 @@
+/**
+ * Hosting & CDN Fingerprints
+ * Static hosting, CDN, PaaS platforms
+ */
+
+import type { ServiceFingerprint } from '../types.js';
+
+export const hostingFingerprints: ServiceFingerprint[] = [
+  {
+    service: 'Cloudflare Pages',
+    description: 'Cloudflare Pages static hosting',
+    cnames: ['*.pages.dev'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'project not found', weight: 10, required: true },
+      { type: 'http_body', pattern: "Couldn't find that page", weight: 8 },
+      { type: 'http_status', value: 522, weight: 5 },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    takeoverPossible: true,
+    documentation: 'https://developers.cloudflare.com/pages/platform/custom-domains/',
+    poc: 'Create Cloudflare Pages project and add custom domain'
+  },
+  {
+    service: 'GitHub Pages',
+    description: 'GitHub Pages hosting',
+    cnames: ['*.github.io', '*.githubusercontent.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: "There isn't a GitHub Pages site here", weight: 10, required: true },
+      { type: 'http_body', pattern: 'For root URLs (like http://example.com/)', weight: 8 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    negativePatterns: [
+      { type: 'http_body', pattern: '<!DOCTYPE html>', description: 'Valid HTML page exists' }
+    ],
+    minConfidence: 5,
+    takeoverPossible: true,
+    documentation: 'https://docs.github.com/en/pages',
+    poc: 'Create repository and configure GitHub Pages with custom domain'
+  },
+  {
+    service: 'GitLab Pages',
+    description: 'GitLab Pages hosting',
+    cnames: ['*.gitlab.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'The page you\'re looking for could not be found', weight: 8 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: false,
+    documentation: 'https://docs.gitlab.com/ee/user/project/pages/'
+  },
+  {
+    service: 'Heroku',
+    description: 'Heroku cloud platform',
+    cnames: ['*.herokuapp.com', '*.herokussl.com', '*.herokudns.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'No such app', weight: 10, required: true },
+      { type: 'http_body', pattern: 'no-such-app', weight: 10 },
+      { type: 'http_body', pattern: "There's nothing here, yet.", weight: 8 },
+      { type: 'http_body', pattern: 'herokucdn.com/error-pages', weight: 9 },
+      { type: 'dns_nxdomain', weight: 5 }
+    ],
+    negativePatterns: [
+      { type: 'http_status', value: 200, description: 'App is responding' },
+      { type: 'http_body', pattern: 'application error', description: 'App exists but crashed' }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Heroku app and add custom domain'
+  },
+  {
+    service: 'Vercel',
+    description: 'Vercel (formerly ZEIT/Now)',
+    cnames: ['*.vercel.app', '*.now.sh', 'cname.vercel-dns.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'The deployment could not be found', weight: 10, required: true },
+      { type: 'http_body', pattern: 'DEPLOYMENT_NOT_FOUND', weight: 10 },
+      { type: 'http_body', pattern: 'vercel.com', weight: 3 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    negativePatterns: [
+      { type: 'http_status', value: 200, description: 'Deployment active' }
+    ],
+    takeoverPossible: true,
+    poc: 'Add domain in Vercel project settings'
+  },
+  {
+    service: 'Netlify',
+    description: 'Netlify hosting platform',
+    cnames: ['*.netlify.app', '*.netlify.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Not Found - Request ID:', weight: 10, required: true },
+      { type: 'http_body', pattern: 'Page Not Found', weight: 5 }
+    ],
+    takeoverPossible: true,
+    poc: 'Add custom domain in Netlify site settings'
+  },
+  {
+    service: 'Surge.sh',
+    description: 'Surge static hosting',
+    cnames: ['*.surge.sh'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'project not found', weight: 10, required: true },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Deploy to surge with the claimed domain'
+  },
+  {
+    service: 'Fastly',
+    description: 'Fastly CDN',
+    cnames: ['*.fastly.net', '*.fastlylb.net'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Fastly error: unknown domain', weight: 10, required: true },
+      { type: 'http_status', value: 500, weight: 3 }
+    ],
+    takeoverPossible: true,
+    poc: 'Add domain to Fastly service'
+  },
+  {
+    service: 'Pantheon',
+    description: 'Pantheon hosting',
+    cnames: ['*.pantheonsite.io', '*.pantheon.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: '404 error unknown site', weight: 10, required: true },
+      { type: 'http_body', pattern: 'The gods are wise', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Add domain to Pantheon site'
+  },
+  {
+    service: 'Fly.io',
+    description: 'Fly.io app platform',
+    cnames: ['*.fly.dev'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Could not find app', weight: 10, required: true },
+      { type: 'http_body', pattern: 'fly.io', weight: 5 },
+      { type: 'http_status', value: 404, weight: 2 },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    minConfidence: 5,
+    takeoverPossible: true,
+    poc: 'Create fly app and add certificate'
+  },
+  {
+    service: 'Render',
+    description: 'Render cloud platform',
+    cnames: ['*.onrender.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Not Found', weight: 5 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    minConfidence: 4,
+    takeoverPossible: true,
+    poc: 'Add custom domain in Render dashboard'
+  },
+  {
+    service: 'Railway',
+    description: 'Railway app platform',
+    cnames: ['*.railway.app', '*.up.railway.app'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Application not found', weight: 10, required: true },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Deploy app and add custom domain'
+  },
+  {
+    service: 'Replit',
+    description: 'Replit hosting',
+    cnames: ['*.repl.co', '*.replit.app', '*.replit.dev'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Not Found', weight: 5 },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    minConfidence: 4,
+    takeoverPossible: true,
+    poc: 'Create Replit project and link custom domain'
+  },
+  {
+    service: 'Glitch',
+    description: 'Glitch project hosting',
+    cnames: ['*.glitch.me'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Nothing here yet', weight: 10, required: true },
+      { type: 'http_body', pattern: 'project not found', weight: 10 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Glitch project with matching name'
+  },
+  {
+    service: 'Deta Space',
+    description: 'Deta Space cloud platform',
+    cnames: ['*.deta.dev', '*.deta.app'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Not Found', weight: 5 },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    minConfidence: 4,
+    takeoverPossible: true,
+    poc: 'Create Deta Space app and add domain'
+  },
+  {
+    service: 'Kinsta',
+    description: 'Kinsta WordPress hosting',
+    cnames: ['*.kinsta.cloud'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'No Site For Domain', weight: 10, required: true }
+    ],
+    takeoverPossible: true,
+    poc: 'Add domain to Kinsta site'
+  },
+  {
+    service: 'Read the Docs',
+    description: 'Read the Docs hosting',
+    cnames: ['*.readthedocs.io', 'readthedocs.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'unknown to Read the Docs', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create project and add custom domain'
+  },
+  {
+    service: 'Gitbook',
+    description: 'Gitbook documentation hosting',
+    cnames: ['*.gitbook.io', 'hosting.gitbook.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'If you are the owner of this space', weight: 10, required: true },
+      { type: 'http_body', pattern: 'GitBook: Page not found', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Gitbook space and configure custom domain'
+  },
+  {
+    service: 'Hashnode',
+    description: 'Hashnode developer blog platform',
+    cnames: ['*.hashnode.network', '*.hashnode.dev'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Blog not found', weight: 10, required: true },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Hashnode blog and add custom domain'
+  }
+];

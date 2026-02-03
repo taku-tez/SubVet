@@ -18,6 +18,7 @@ export { Scanner, quickScan, listServices } from './scanner.js';
 export { DnsResolver, quickDnsCheck } from './dns.js';
 export { HttpProber, quickHttpProbe } from './http.js';
 export { getAllFingerprints, findServiceByCname, getServiceByName } from './fingerprints/index.js';
+export { generateReport, generateHtmlReport, generateMarkdownReport, type ReportFormat } from './report.js';
 export type {
   ScanResult,
   ScanOutput,

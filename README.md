@@ -6,11 +6,12 @@ SubVet scans subdomains for potential takeover vulnerabilities by checking DNS r
 
 ## Features
 
-- 🎯 **40+ Service Fingerprints** - AWS S3, Azure, GitHub Pages, Heroku, Shopify, and more
+- 🎯 **80+ Service Fingerprints** - AWS S3/CloudFront/Amplify, Azure, Cloudflare Pages, GitHub Pages, Heroku, Shopify, and more
 - ⚡ **Fast Concurrent Scanning** - Configurable parallelism
 - 📊 **JSON Output** - Easy integration with other tools
 - 🔍 **DNS + HTTP Probing** - Comprehensive detection
 - 🛡️ **CNAME Chain Following** - Detect dangling records
+- 🔐 **NS Delegation Check** - Detect dangling nameservers (critical risk)
 
 ## Installation
 
@@ -61,8 +62,13 @@ subvet fingerprint "GitHub Pages"
 | `-t, --timeout <ms>` | Request timeout | 10000 |
 | `-c, --concurrency <n>` | Parallel requests | 10 |
 | `--no-http` | Skip HTTP probing | false |
+| `--check-ns` | Check for dangling NS delegation | false |
+| `--check-mx` | Check for dangling MX records | false |
+| `--check-spf` | Check for dangling SPF includes | false |
+| `--check-srv` | Check for dangling SRV records | false |
 | `-v, --verbose` | Show progress | false |
 | `--pretty` | Pretty print JSON | false |
+| `--summary` | Show summary only | false |
 
 ## Output Format
 
@@ -105,15 +111,40 @@ subvet fingerprint "GitHub Pages"
 | `potential` | Needs manual verification | 0 |
 | `not_vulnerable` | Properly configured | 0 |
 
+## NS Delegation Check
+
+Dangling NS records are **critical** vulnerabilities. When a subdomain delegates DNS to a nameserver that no longer exists, an attacker can register that nameserver domain and gain full control.
+
+```bash
+# Check for dangling NS delegation
+subvet scan example.com --check-ns
+
+# Example output for vulnerable subdomain
+{
+  "status": "vulnerable",
+  "service": "NS Delegation",
+  "evidence": ["Dangling NS delegation: ns1.defunct-provider.com"],
+  "risk": "critical",
+  "poc": "Register the dangling nameserver domain and configure DNS zone"
+}
+```
+
+**Why it's critical:**
+- Attacker gains full DNS control over the subdomain
+- Can create any record (A, MX, TXT, etc.)
+- Enables email interception, phishing, and more
+- Often overlooked in traditional CNAME scanning
+
 ## Supported Services
 
 <details>
-<summary>Click to expand (40+ services)</summary>
+<summary>Click to expand (80+ services)</summary>
 
 **Cloud Platforms:**
-- AWS S3, Elastic Beanstalk
+- AWS S3, Elastic Beanstalk, CloudFront
 - Azure (Web Apps, Blob, CDN, etc.)
 - Google Cloud Storage
+- Cloudflare Pages
 
 **Hosting:**
 - GitHub Pages, GitLab Pages
@@ -185,15 +216,45 @@ subvet scan -f subs.txt | jq '.results[] | select(.status == "vulnerable")'
     fi
 ```
 
+## Project Structure
+
+```
+src/
+├── cli.ts              # CLI interface
+├── scanner.ts          # Main scanning logic
+├── dns.ts              # DNS resolution
+├── http.ts             # HTTP probing
+├── types.ts            # TypeScript definitions
+├── utils.ts            # Utility functions
+├── report.ts           # Report generation (JSON/HTML/MD)
+├── fingerprints/
+│   ├── index.ts        # Combined exports
+│   ├── cloud.ts        # AWS, Azure, GCP
+│   ├── hosting.ts      # GitHub Pages, Vercel, Netlify...
+│   ├── website-builders.ts  # Webflow, Wix, Framer...
+│   ├── ecommerce.ts    # Shopify, BigCommerce
+│   ├── support.ts      # Zendesk, Freshdesk, Intercom...
+│   ├── marketing.ts    # HubSpot, Campaign Monitor...
+│   ├── devtools.ts     # Bitbucket, Statuspage, Ngrok...
+│   └── misc.ts         # Regional & niche services
+└── __tests__/          # Test files
+```
+
 ## Contributing
 
 Fingerprints are based on [can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz).
 
 To add a new service:
 
-1. Add fingerprint to `src/fingerprints/index.ts`
-2. Include CNAME patterns, HTTP fingerprints, and takeover possibility
-3. Submit a PR
+1. Find the appropriate category in `src/fingerprints/`
+2. Add your fingerprint with:
+   - `cnames`: CNAME patterns (glob-like)
+   - `fingerprints`: Detection rules with `weight` and `required`
+   - `negativePatterns`: Patterns indicating NOT vulnerable
+   - `takeoverPossible`: Boolean
+   - `poc`: How to exploit
+3. Run tests: `npm test`
+4. Submit a PR
 
 ## License
 

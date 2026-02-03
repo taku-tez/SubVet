@@ -1,0 +1,209 @@
+/**
+ * Website Builder Fingerprints
+ * CMS, website builders, no-code platforms
+ */
+
+import type { ServiceFingerprint } from '../types.js';
+
+export const websiteBuilderFingerprints: ServiceFingerprint[] = [
+  {
+    service: 'Webflow',
+    description: 'Webflow CMS',
+    cnames: ['*.webflow.io', 'proxy-ssl.webflow.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'The page you are looking for doesn\'t exist', weight: 10, required: true },
+      { type: 'http_body', pattern: 'page-not-found', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Add domain in Webflow project settings'
+  },
+  {
+    service: 'Ghost',
+    description: 'Ghost blogging platform',
+    cnames: ['*.ghost.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'The thing you were looking for is no longer here', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Add custom domain in Ghost admin'
+  },
+  {
+    service: 'Tumblr',
+    description: 'Tumblr blogging',
+    cnames: ['*.tumblr.com', 'domains.tumblr.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'There\'s nothing here.', weight: 10, required: true },
+      { type: 'http_body', pattern: 'Whatever you were looking for doesn\'t currently exist', weight: 10 }
+    ],
+    takeoverPossible: true,
+    poc: 'Register Tumblr blog and add custom domain'
+  },
+  {
+    service: 'WordPress.com',
+    description: 'WordPress.com hosted blogs',
+    cnames: ['*.wordpress.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Do you want to register', weight: 10, required: true }
+    ],
+    takeoverPossible: true,
+    poc: 'Register WordPress.com blog with matching subdomain'
+  },
+  {
+    service: 'Squarespace',
+    description: 'Squarespace website builder',
+    cnames: ['*.squarespace.com', 'ext-cust.squarespace.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'No Such Account', weight: 10 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: false,
+    documentation: 'Requires domain verification'
+  },
+  {
+    service: 'Wix',
+    description: 'Wix website builder',
+    cnames: ['*.wixsite.com', '*.wix.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Error ConnectYourDomain occurred', weight: 10 },
+      { type: 'http_body', pattern: 'looks like there is no site here', weight: 10 }
+    ],
+    takeoverPossible: false,
+    documentation: 'Requires domain verification'
+  },
+  {
+    service: 'Tilda',
+    description: 'Tilda website builder',
+    cnames: ['*.tilda.ws'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Please renew your subscription', weight: 10, required: true },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Tilda project with custom domain'
+  },
+  {
+    service: 'Strikingly',
+    description: 'Strikingly website builder',
+    cnames: ['*.strikinglydns.com', '*.s.strikinglydns.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'page not found', weight: 8 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    minConfidence: 5,
+    takeoverPossible: true,
+    poc: 'Create Strikingly site with custom domain'
+  },
+  {
+    service: 'Cargo Collective',
+    description: 'Cargo portfolio sites',
+    cnames: ['*.cargo.site', '*.cargocollective.com'],
+    fingerprints: [
+      { type: 'http_body', pattern: '404 Not Found', weight: 5 },
+      { type: 'dns_nxdomain', weight: 8 }
+    ],
+    minConfidence: 4,
+    takeoverPossible: true,
+    poc: 'Create Cargo site and add domain'
+  },
+  {
+    service: 'Framer',
+    description: 'Framer website builder',
+    cnames: ['*.framer.app', '*.framer.website', 'sites.framer.app'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Site Not Found', weight: 10, required: true },
+      { type: 'http_body', pattern: 'This site is no longer published', weight: 10 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Framer site and configure custom domain'
+  },
+  {
+    service: 'Carrd',
+    description: 'Carrd single-page sites',
+    cnames: ['*.carrd.co'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Site Not Found', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Carrd site and configure custom domain'
+  },
+  {
+    service: 'Softr',
+    description: 'Softr no-code app builder',
+    cnames: ['*.softr.app', '*.softr.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'App not found', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Softr app and add custom domain'
+  },
+  {
+    service: 'Bubble',
+    description: 'Bubble no-code platform',
+    cnames: ['*.bubbleapps.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'This app is not found', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Bubble app and configure domain'
+  },
+  {
+    service: 'Webnode',
+    description: 'Webnode website builder',
+    cnames: ['*.webnode.com', '*.webnode.page'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'This website is not available', weight: 10, required: true },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Webnode site and add custom domain'
+  },
+  {
+    service: 'Notion Sites',
+    description: 'Notion public sites',
+    cnames: ['*.notion.site'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'This content does not exist', weight: 10 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: false,
+    documentation: 'Requires TXT verification'
+  },
+  {
+    service: 'Linear',
+    description: 'Linear project management (public pages)',
+    cnames: ['*.linear.app'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Page not found', weight: 5 },
+      { type: 'http_status', value: 404, weight: 2 }
+    ],
+    takeoverPossible: false,
+    documentation: 'Requires organization verification'
+  },
+  {
+    service: 'Anima',
+    description: 'Anima app',
+    cnames: ['*.animaapp.io'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'Missing Website', weight: 10, required: true },
+      { type: 'http_body', pattern: 'If this is your website', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Deploy to Anima with custom domain'
+  },
+  {
+    service: 'Worksites',
+    description: 'Worksites website builder',
+    cnames: ['*.worksites.net'],
+    fingerprints: [
+      { type: 'http_body', pattern: 'the website you\'re looking for doesn\'t exist', weight: 10, required: true },
+      { type: 'http_body', pattern: 'Hello! Sorry, but the website', weight: 8 }
+    ],
+    takeoverPossible: true,
+    poc: 'Create Worksites site with custom domain'
+  }
+];

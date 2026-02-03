@@ -10,9 +10,10 @@ import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { Scanner } from './scanner.js';
 import { getAllFingerprints } from './fingerprints/index.js';
+import { generateReport, type ReportFormat } from './report.js';
 import type { ScanResult } from './types.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.3.0';
 
 const program = new Command();
 
@@ -31,9 +32,15 @@ program
   .option('-t, --timeout <ms>', 'Timeout for DNS/HTTP requests', '10000')
   .option('-c, --concurrency <n>', 'Number of concurrent requests', '10')
   .option('--no-http', 'Skip HTTP probing')
+  .option('--check-ns', 'Check for dangling NS delegation')
+  .option('--check-mx', 'Check for dangling MX records')
+  .option('--check-spf', 'Check for dangling SPF includes')
+  .option('--check-srv', 'Check for dangling SRV records')
   .option('-v, --verbose', 'Show progress')
   .option('-o, --output <file>', 'Write JSON output to file')
   .option('--pretty', 'Pretty print JSON output')
+  .option('--summary', 'Show summary only (no full results)')
+  .option('--report <format>', 'Generate report (html, md, json)')
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
@@ -55,11 +62,29 @@ program
         process.exit(1);
       }
 
+      // Validate numeric options
+      const timeout = Number(options.timeout);
+      const concurrency = Number(options.concurrency);
+
+      if (!Number.isFinite(timeout) || timeout <= 0) {
+        console.error(chalk.red(`Error: Invalid timeout value "${options.timeout}". Must be a positive number.`));
+        process.exit(1);
+      }
+
+      if (!Number.isFinite(concurrency) || concurrency <= 0 || !Number.isInteger(concurrency)) {
+        console.error(chalk.red(`Error: Invalid concurrency value "${options.concurrency}". Must be a positive integer.`));
+        process.exit(1);
+      }
+
       // Create scanner
       const scanner = new Scanner({
-        timeout: parseInt(options.timeout),
-        concurrency: parseInt(options.concurrency),
+        timeout,
+        concurrency,
         httpProbe: options.http !== false,
+        nsCheck: options.checkNs ?? false,
+        mxCheck: options.checkMx ?? false,
+        spfCheck: options.checkSpf ?? false,
+        srvCheck: options.checkSrv ?? false,
         verbose: options.verbose
       });
 
@@ -81,11 +106,26 @@ program
         console.error(chalk.green(`Results written to ${options.output}`));
       }
 
-      // Always output JSON to stdout
-      const json = options.pretty 
-        ? JSON.stringify(output, null, 2)
-        : JSON.stringify(output);
-      console.log(json);
+      // Output to stdout
+      if (options.report) {
+        // Generate report in specified format
+        const reportContent = generateReport(output, options.report as ReportFormat);
+        console.log(reportContent);
+      } else if (options.summary) {
+        // Summary only mode
+        console.log(chalk.cyan(`\nSubVet Scan Summary\n`));
+        console.log(`Total scanned: ${output.summary.total}`);
+        console.log(chalk.red(`Vulnerable: ${output.summary.vulnerable}`));
+        console.log(chalk.yellow(`Likely: ${output.summary.likely}`));
+        console.log(chalk.magenta(`Potential: ${output.summary.potential}`));
+        console.log(chalk.green(`Safe: ${output.summary.safe}`));
+        console.log(chalk.gray(`Errors: ${output.summary.errors}`));
+      } else {
+        const json = options.pretty 
+          ? JSON.stringify(output, null, 2)
+          : JSON.stringify(output);
+        console.log(json);
+      }
 
       // Exit with error code if vulnerabilities found
       if (output.summary.vulnerable > 0) {
@@ -106,12 +146,27 @@ program
   .description('Check a single subdomain (human-readable output)')
   .argument('<subdomain>', 'Subdomain to check')
   .option('-t, --timeout <ms>', 'Timeout for DNS/HTTP requests', '10000')
+  .option('--check-ns', 'Check for dangling NS delegation')
+  .option('--check-mx', 'Check for dangling MX records')
+  .option('--check-spf', 'Check for dangling SPF includes')
+  .option('--check-srv', 'Check for dangling SRV records')
   .option('--json', 'Output as JSON')
   .action(async (subdomain, options) => {
     try {
+      // Validate timeout
+      const timeout = Number(options.timeout);
+      if (!Number.isFinite(timeout) || timeout <= 0) {
+        console.error(chalk.red(`Error: Invalid timeout value "${options.timeout}". Must be a positive number.`));
+        process.exit(1);
+      }
+
       const scanner = new Scanner({
-        timeout: parseInt(options.timeout),
-        httpProbe: true
+        timeout,
+        httpProbe: true,
+        nsCheck: options.checkNs ?? false,
+        mxCheck: options.checkMx ?? false,
+        spfCheck: options.checkSpf ?? false,
+        srvCheck: options.checkSrv ?? false
       });
 
       const output = await scanner.scan([subdomain]);
@@ -273,6 +328,34 @@ function printResult(result: ScanResult): void {
     }
     if (result.dns.records.length > 5) {
       console.log(chalk.gray(`     ... and ${result.dns.records.length - 5} more`));
+    }
+  }
+
+  if (result.dns.nsDangling && result.dns.nsDangling.length > 0) {
+    console.log(chalk.red(`   ⚠️  Dangling NS:`));
+    for (const ns of result.dns.nsDangling) {
+      console.log(chalk.red(`     ${ns}`));
+    }
+  }
+
+  if (result.dns.mxDangling && result.dns.mxDangling.length > 0) {
+    console.log(chalk.red(`   📧 Dangling MX (CRITICAL):`));
+    for (const mx of result.dns.mxDangling) {
+      console.log(chalk.red(`     ${mx}`));
+    }
+  }
+
+  if (result.dns.spfDangling && result.dns.spfDangling.length > 0) {
+    console.log(chalk.yellow(`   📨 Dangling SPF include:`));
+    for (const spf of result.dns.spfDangling) {
+      console.log(chalk.yellow(`     ${spf}`));
+    }
+  }
+
+  if (result.dns.srvDangling && result.dns.srvDangling.length > 0) {
+    console.log(chalk.yellow(`   🔌 Dangling SRV record:`));
+    for (const srv of result.dns.srvDangling) {
+      console.log(chalk.yellow(`     ${srv}`));
     }
   }
 

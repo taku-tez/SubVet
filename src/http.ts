@@ -77,7 +77,7 @@ export class HttpProber {
         result.headers[key.toLowerCase()] = value;
       });
 
-      // Get body (limited size)
+      // Get body (limited size) - efficient concatenation
       try {
         const reader = response.body?.getReader();
         if (reader) {
@@ -90,14 +90,27 @@ export class HttpProber {
             
             chunks.push(value);
             totalSize += value.length;
+            
+            // Stop early if we've exceeded max size
+            if (totalSize >= this.options.maxBodySize) {
+              reader.cancel();
+              break;
+            }
+          }
+
+          // Efficient concatenation using Buffer.concat (or manual for Uint8Array)
+          const totalLength = Math.min(totalSize, this.options.maxBodySize);
+          const combined = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const chunk of chunks) {
+            const bytesToCopy = Math.min(chunk.length, totalLength - offset);
+            combined.set(chunk.subarray(0, bytesToCopy), offset);
+            offset += bytesToCopy;
+            if (offset >= totalLength) break;
           }
 
           const decoder = new TextDecoder('utf-8', { fatal: false });
-          result.body = decoder.decode(
-            new Uint8Array(chunks.flatMap(c => [...c]).slice(0, this.options.maxBodySize))
-          );
-          
-          reader.cancel(); // Cancel if we didn't finish reading
+          result.body = decoder.decode(combined);
         }
       } catch {
         // Body read error, might be binary or too large
