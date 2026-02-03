@@ -280,6 +280,21 @@ describe('glob pattern matching', () => {
     // *.s3-*.amazonaws.com
     expect(findServiceByCname('bucket.s3-us-west-2.amazonaws.com')?.service).toBe('AWS S3');
   });
+
+  it('should handle trailing dot in CNAME (FQDN format)', () => {
+    // Some DNS resolvers return FQDNs with trailing dots
+    expect(findServiceByCname('test.github.io.')?.service).toBe('GitHub Pages');
+    expect(findServiceByCname('bucket.s3.amazonaws.com.')?.service).toBe('AWS S3');
+  });
+
+  it('should handle whitespace in CNAME', () => {
+    expect(findServiceByCname('  test.github.io  ')?.service).toBe('GitHub Pages');
+  });
+
+  it('should be case insensitive', () => {
+    expect(findServiceByCname('TEST.GITHUB.IO')?.service).toBe('GitHub Pages');
+    expect(findServiceByCname('Bucket.S3.AmazonAWS.COM')?.service).toBe('AWS S3');
+  });
 });
 
 describe('fingerprint data quality', () => {

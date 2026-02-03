@@ -77,6 +77,24 @@ describe('quickDnsCheck', () => {
   });
 });
 
+describe('DnsResolver CNAME handling', () => {
+  it('should normalize CNAME with trailing dot', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    // This tests the normalization internally
+    const result = await resolver.resolve('www.github.com');
+    if (result.cname) {
+      expect(result.cname.endsWith('.')).toBe(false);
+    }
+  });
+
+  it('should not set nxdomain for valid CNAME chains', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    // www.github.com has a CNAME that resolves
+    const result = await resolver.resolve('www.github.com');
+    expect(result.nxdomain).toBe(false);
+  });
+});
+
 describe('DnsResolver advanced', () => {
   describe('with SRV check', () => {
     it('should check SRV records when enabled', async () => {

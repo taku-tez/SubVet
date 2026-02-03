@@ -15,7 +15,7 @@ import { HttpProber } from './http.js';
 import { findServiceByCname, fingerprints } from './fingerprints/index.js';
 import { escapeRegex } from './utils.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 
 export class Scanner {
   private dnsResolver: DnsResolver;

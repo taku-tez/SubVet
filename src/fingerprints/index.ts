@@ -46,16 +46,28 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /**
+ * Normalize CNAME (trim, remove trailing dot, lowercase)
+ */
+function normalizeCname(cname: string): string {
+  let normalized = cname.trim();
+  // Remove trailing dot (FQDN format from some DNS resolvers)
+  if (normalized.endsWith('.')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized.toLowerCase();
+}
+
+/**
  * Find matching fingerprint for a CNAME
  */
 export function findServiceByCname(cname: string): ServiceFingerprint | null {
-  const lowerCname = cname.toLowerCase();
+  const normalizedCname = normalizeCname(cname);
   
   for (const fp of fingerprints) {
     for (const pattern of fp.cnames) {
       const regex = globToRegex(pattern);
       
-      if (regex.test(lowerCname)) {
+      if (regex.test(normalizedCname)) {
         return fp;
       }
     }

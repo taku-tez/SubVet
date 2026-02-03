@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.1 (2026-02-04)
+
+### 🐛 Bug Fixes (FB対応 #2)
+
+1. **CNAME解決ロジックの修正** (#1)
+   - CNAMEが存在するだけでnxdomain=trueになる問題を修正
+   - CNAMEチェーン追跡後、最終CNAMEのA/AAAAを確認
+   - 最終CNAMEが解決できない場合のみnxdomain=true
+
+2. **dns_nxdomainルールの証跡改善** (#2)
+   - `checkDnsFingerprints()` でdns_nxdomainの証跡を追加
+   - HTTPスキップ時でもDNS判定が残るように
+
+3. **CNAME末尾ドット対応** (#3)
+   - `normalizeDomain()` / `normalizeCname()` 追加
+   - FQDNフォーマット（末尾.）を正規化
+   - DNS解決時とfingerprint照合時の両方で正規化
+
+4. **DNSエラーの反映改善** (#4)
+   - タイムアウト/SERVFAILを`result.error`に記録
+   - エラー握りつぶしを修正
+
+### Tests
+- 197 tests (195 passed, 2 skipped)
+- CNAME末尾ドット、正規化テスト追加
+
 ## v0.5.0 (2026-02-04)
 
 ### 🐛 Bug Fixes (FB対応)

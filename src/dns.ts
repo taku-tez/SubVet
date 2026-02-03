@@ -51,21 +51,24 @@ export class DnsResolver {
     };
 
     // Try CNAME first
+    let hasCname = false;
+    let finalCname: string | null = null;
     try {
       const cnames = await this.withTimeout(resolveCname(subdomain));
       if (cnames && cnames.length > 0) {
-        result.cname = cnames[0];
-        result.records.push({ type: 'CNAME', value: cnames[0] });
+        hasCname = true;
+        // Normalize CNAME (remove trailing dot if present)
+        let currentCname = this.normalizeDomain(cnames[0]);
+        result.records.push({ type: 'CNAME', value: currentCname });
         result.resolved = true;
 
         // Follow CNAME chain
-        let currentCname = cnames[0];
         let chainDepth = 0;
         while (chainDepth < 10) {
           try {
             const nextCnames = await this.withTimeout(resolveCname(currentCname));
             if (nextCnames && nextCnames.length > 0) {
-              currentCname = nextCnames[0];
+              currentCname = this.normalizeDomain(nextCnames[0]);
               result.records.push({ type: 'CNAME', value: currentCname });
               chainDepth++;
             } else {
@@ -76,6 +79,7 @@ export class DnsResolver {
           }
         }
         // Final CNAME in chain is what we check against fingerprints
+        finalCname = currentCname;
         result.cname = currentCname;
       }
     } catch (err) {
@@ -84,10 +88,12 @@ export class DnsResolver {
         // No CNAME, that's fine, try A/AAAA
       } else if (error.code === 'SERVFAIL' || error.code === 'ESERVFAIL') {
         result.error = 'DNS server failure';
+      } else if (error.message === 'DNS timeout') {
+        result.error = 'DNS timeout';
       }
     }
 
-    // Try A records
+    // Try A records for the original domain
     let hasIpv4 = false;
     try {
       const ipv4 = await this.withTimeout(resolve4(subdomain));
@@ -101,13 +107,19 @@ export class DnsResolver {
     } catch (err) {
       const error = err as NodeJS.ErrnoException;
       if (error.code === 'ENOTFOUND') {
-        if (!result.resolved) {
+        // No A records for original domain
+        if (!hasCname) {
+          // No CNAME and no A = NXDOMAIN
           result.nxdomain = true;
         }
+      } else if (error.message === 'DNS timeout') {
+        result.error = result.error || 'DNS timeout';
+      } else if (error.code === 'SERVFAIL' || error.code === 'ESERVFAIL') {
+        result.error = result.error || 'DNS server failure';
       }
     }
 
-    // Try AAAA records
+    // Try AAAA records for the original domain
     let hasIpv6 = false;
     try {
       const ipv6 = await this.withTimeout(resolve6(subdomain));
@@ -118,18 +130,43 @@ export class DnsResolver {
         result.resolved = true;
         hasIpv6 = true;
       }
-    } catch {
-      // AAAA failure is common, ignore
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.message === 'DNS timeout') {
+        result.error = result.error || 'DNS timeout';
+      }
+      // AAAA failure is otherwise common, ignore
     }
 
     // Set IPv4/IPv6 flags
     result.hasIpv4 = hasIpv4;
     result.hasIpv6 = hasIpv6;
 
-    // If we got a CNAME but no A/AAAA, that's suspicious
-    if (result.cname && result.records.filter(r => r.type === 'A' || r.type === 'AAAA').length === 0) {
-      // CNAME exists but doesn't resolve - potential dangling
-      result.nxdomain = true;
+    // If we have a CNAME, check if the final CNAME target resolves
+    if (hasCname && finalCname && !hasIpv4 && !hasIpv6) {
+      // Try to resolve the final CNAME target
+      let cnameResolved = false;
+      try {
+        const cnameIpv4 = await this.withTimeout(resolve4(finalCname));
+        if (cnameIpv4 && cnameIpv4.length > 0) {
+          cnameResolved = true;
+        }
+      } catch {
+        // Try IPv6
+        try {
+          const cnameIpv6 = await this.withTimeout(resolve6(finalCname));
+          if (cnameIpv6 && cnameIpv6.length > 0) {
+            cnameResolved = true;
+          }
+        } catch {
+          // Final CNAME doesn't resolve
+        }
+      }
+
+      if (!cnameResolved) {
+        // CNAME exists but final target doesn't resolve - dangling
+        result.nxdomain = true;
+      }
     }
 
     // Check NS delegation if enabled
@@ -388,6 +425,18 @@ export class DnsResolver {
     return Promise.race([promise, timeoutPromise]).finally(() => {
       clearTimeout(timeoutId);
     });
+  }
+
+  /**
+   * Normalize domain name (remove trailing dot, trim whitespace)
+   */
+  private normalizeDomain(domain: string): string {
+    let normalized = domain.trim();
+    // Remove trailing dot (FQDN format)
+    if (normalized.endsWith('.')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
   }
 
   /**
