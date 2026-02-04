@@ -63,6 +63,8 @@ subvet scan --stdin < subdomains.txt
 | `--report <format>` | Output format (json/md/html) | json |
 | `--diff <baseline>` | Compare against baseline JSON | - |
 | `--diff-json` | Output diff as JSON | false |
+| `--slack-webhook <url>` | Send results to Slack | - |
+| `--slack-on <cond>` | When to notify: always/issues/new | issues |
 | `--summary` | Summary only | false |
 | `--pretty` | Pretty print JSON | false |
 | `-v, --verbose` | Show progress | false |
@@ -184,6 +186,45 @@ subvet scan -f subdomains.txt --diff baseline.json
     subvet scan -f subdomains.txt --diff baseline.json
   continue-on-error: false  # Fail on new vulns
 ```
+
+## Slack Integration
+
+Send scan results to Slack via webhooks.
+
+### Setup
+
+1. Create a [Slack Incoming Webhook](https://api.slack.com/messaging/webhooks)
+2. Pass the URL via `--slack-webhook`
+
+### Notification Conditions
+
+| Condition | Description |
+|-----------|-------------|
+| `always` | Notify on every scan |
+| `issues` | Notify when issues found (default) |
+| `new` | Notify only on new vulnerable/likely (CI mode) |
+
+### Examples
+
+```bash
+# Basic notification
+subvet scan -f targets.txt --slack-webhook $SLACK_WEBHOOK
+
+# CI: Only notify on new critical issues
+subvet scan -f targets.txt --diff baseline.json \
+  --slack-webhook $SLACK_WEBHOOK --slack-on new
+
+# Always notify (monitoring dashboard)
+subvet scan example.com --slack-webhook $SLACK_WEBHOOK --slack-on always
+```
+
+### Message Format
+
+Slack messages include:
+- 🚨/⚠️/✅ Status emoji
+- Summary stats (total, vulnerable, likely, safe)
+- Top 10 findings with service names
+- Version and exit code footer
 
 ### Diff Output
 

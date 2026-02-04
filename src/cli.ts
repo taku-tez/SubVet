@@ -12,6 +12,7 @@ import { Scanner } from './scanner.js';
 import { getAllFingerprints } from './fingerprints/index.js';
 import { generateReport, type ReportFormat } from './report.js';
 import { compareScans, formatDiffText, getDiffExitCode } from './diff.js';
+import { sendSlackWebhook, formatScanMessage, formatDiffMessage } from './slack.js';
 import { isValidDomain, parseSubdomains } from './utils.js';
 import { VERSION } from './version.js';
 import type { ScanResult, ScanOutput } from './types.js';
@@ -44,6 +45,8 @@ program
   .option('--report <format>', 'Generate report (html, md, json)')
   .option('--diff <baseline>', 'Compare against baseline JSON file (CI mode)')
   .option('--diff-json', 'Output diff as JSON (with --diff)')
+  .option('--slack-webhook <url>', 'Send results to Slack webhook')
+  .option('--slack-on <condition>', 'When to notify: always, issues, new (default: issues)', 'issues')
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
@@ -142,6 +145,24 @@ program
           console.log(formatDiffText(diff));
         }
 
+        // Send Slack notification for diff mode
+        if (options.slackWebhook) {
+          const shouldNotify = 
+            options.slackOn === 'always' ||
+            (options.slackOn === 'new' && (diff.summary.newVulnerable > 0 || diff.summary.newLikely > 0)) ||
+            (options.slackOn === 'issues' && (diff.summary.newVulnerable > 0 || diff.summary.newLikely > 0 || diff.summary.newPotential > 0));
+
+          if (shouldNotify) {
+            const message = formatDiffMessage(diff);
+            const result = await sendSlackWebhook(options.slackWebhook, message);
+            if (!result.ok) {
+              console.error(chalk.yellow(`Warning: Failed to send Slack notification: ${result.error}`));
+            } else if (options.verbose) {
+              console.error(chalk.green('Slack notification sent'));
+            }
+          }
+        }
+
         // Exit with code based on new vulnerabilities only
         process.exit(getDiffExitCode(diff));
       } else if (options.report) {
@@ -162,6 +183,27 @@ program
           ? JSON.stringify(output, null, 2)
           : JSON.stringify(output);
         console.log(json);
+      }
+
+      // Send Slack notification for regular scan mode
+      if (options.slackWebhook && !options.diff) {
+        const hasIssues = output.summary.vulnerable > 0 || output.summary.likely > 0 || output.summary.potential > 0;
+        const hasCritical = output.summary.vulnerable > 0 || output.summary.likely > 0;
+        
+        const shouldNotify = 
+          options.slackOn === 'always' ||
+          (options.slackOn === 'issues' && hasIssues) ||
+          (options.slackOn === 'new' && hasCritical);  // 'new' in non-diff mode = critical only
+
+        if (shouldNotify) {
+          const message = formatScanMessage(output);
+          const result = await sendSlackWebhook(options.slackWebhook, message);
+          if (!result.ok) {
+            console.error(chalk.yellow(`Warning: Failed to send Slack notification: ${result.error}`));
+          } else if (options.verbose) {
+            console.error(chalk.green('Slack notification sent'));
+          }
+        }
       }
 
       // Exit with error code if vulnerabilities found (not in diff mode)

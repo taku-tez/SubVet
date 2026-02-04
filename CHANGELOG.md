@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.8.0 (2026-02-04)
+
+### 🚀 New Features
+
+**Slack Webhook Integration** (`--slack-webhook`)
+- Send scan results and diff reports to Slack
+- Rich formatting with Block Kit (headers, fields, emojis)
+- Configurable notification conditions via `--slack-on`:
+  - `always`: Notify on every scan
+  - `issues`: Notify when any issues found (default)
+  - `new`: Notify only on new vulnerable/likely findings
+- Works with both regular scans and diff mode
+
+### Usage Examples
+
+```bash
+# Notify Slack on any issues
+subvet scan -f subdomains.txt --slack-webhook $SLACK_WEBHOOK
+
+# Notify only on new vulnerabilities (CI mode)
+subvet scan -f subdomains.txt --diff baseline.json \
+  --slack-webhook $SLACK_WEBHOOK --slack-on new
+
+# Always notify (for monitoring dashboards)
+subvet scan example.com --slack-webhook $SLACK_WEBHOOK --slack-on always
+```
+
+### Tests
+- 251 tests (249 passed, 2 skipped)
+- 11 new Slack module tests added
+
+---
+
 ## v0.7.0 (2026-02-04)
 
 ### 🚀 New Features
