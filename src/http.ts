@@ -3,6 +3,7 @@
  */
 
 import type { HttpProbeResult } from './types.js';
+import { VERSION } from './version.js';
 
 export interface HttpProbeOptions {
   timeout?: number;
@@ -15,7 +16,7 @@ const DEFAULT_OPTIONS: Required<HttpProbeOptions> = {
   timeout: 10000,
   followRedirects: true,
   maxBodySize: 1024 * 100, // 100KB
-  userAgent: 'SubVet/0.1.0 (Subdomain Takeover Scanner)'
+  userAgent: `SubVet/${VERSION} (Subdomain Takeover Scanner)`
 };
 
 export class HttpProber {

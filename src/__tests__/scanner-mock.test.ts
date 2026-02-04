@@ -598,4 +598,121 @@ describe('Scanner vulnerability detection', () => {
       expect(result).toBeDefined();
     });
   });
+
+  describe('DNS dangling fingerprint rules', () => {
+    it('should detect dangling NS with ns_nxdomain rule', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'NS', value: 'ns.dangling-domain.com' }],
+        hasIpv4: false,
+        hasIpv6: false,
+        resolved: false,
+        nxdomain: false,
+        nsRecords: ['ns.dangling-domain.com'],
+        nsDangling: ['ns.dangling-domain.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: null,
+        body: null,
+        headers: {},
+        error: 'DNS resolution failed'
+      });
+
+      const scanner = new Scanner({ timeout: 5000, nsCheck: true });
+      const result = await scanner.scanOne('test.example.com');
+
+      // NS dangling is detected directly by scanner (not via fingerprint rule)
+      expect(result.evidence.some(e => e.includes('Dangling NS'))).toBe(true);
+    });
+
+    it('should detect dangling MX records', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [
+          { type: 'A', value: '1.2.3.4' },
+          { type: 'MX', value: '10 mail.dangling.com' }
+        ],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        mxRecords: ['mail.dangling.com'],
+        mxDangling: ['mail.dangling.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'Normal page',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, mxCheck: true });
+      const result = await scanner.scanOne('test.example.com');
+
+      expect(result.evidence.some(e => e.includes('Dangling MX'))).toBe(true);
+      expect(result.status).toBe('vulnerable');
+    });
+
+    it('should detect dangling SPF includes', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [
+          { type: 'A', value: '1.2.3.4' },
+          { type: 'TXT', value: 'v=spf1 include:spf.dangling.com ~all' }
+        ],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        spfRecord: 'v=spf1 include:spf.dangling.com ~all',
+        spfIncludes: ['spf.dangling.com'],
+        spfDangling: ['spf.dangling.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'Normal page',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, spfCheck: true });
+      const result = await scanner.scanOne('test.example.com');
+
+      expect(result.evidence.some(e => e.includes('Dangling SPF'))).toBe(true);
+      expect(result.status).toBe('vulnerable');
+    });
+
+    it('should detect dangling SRV records', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [
+          { type: 'A', value: '1.2.3.4' },
+          { type: 'SRV', value: '_autodiscover._tcp 10 0 443 autodiscover.dangling.com' }
+        ],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        srvRecords: ['_autodiscover._tcp: autodiscover.dangling.com'],
+        srvDangling: ['_autodiscover._tcp: autodiscover.dangling.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'Normal page',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, srvCheck: true });
+      const result = await scanner.scanOne('test.example.com');
+
+      expect(result.evidence.some(e => e.includes('Dangling SRV'))).toBe(true);
+      expect(result.status).toBe('vulnerable');
+    });
+  });
 });

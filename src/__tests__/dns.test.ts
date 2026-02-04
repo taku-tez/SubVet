@@ -95,6 +95,72 @@ describe('DnsResolver CNAME handling', () => {
   });
 });
 
+describe('DnsResolver dangling checks', () => {
+  describe('isNsDangling', () => {
+    it('should return false for valid nameserver with A record', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      // ns1.google.com has A records
+      const result = await resolver.isNsDangling('ns1.google.com');
+      expect(result).toBe(false);
+    });
+
+    it('should return true for non-existent nameserver', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isNsDangling('ns.nonexistent-domain-test-12345.com');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isMxDangling', () => {
+    it('should return false for valid mail server', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      // Google's mail servers exist
+      const result = await resolver.isMxDangling('smtp.google.com');
+      expect(result).toBe(false);
+    });
+
+    it('should return true for non-existent mail server', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isMxDangling('mail.nonexistent-domain-test-12345.com');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isSrvTargetDangling', () => {
+    it('should return false for null SRV target (.)', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isSrvTargetDangling('.');
+      expect(result).toBe(false);
+    });
+
+    it('should return false for empty SRV target', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isSrvTargetDangling('');
+      expect(result).toBe(false);
+    });
+
+    it('should return true for non-existent SRV target', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isSrvTargetDangling('srv.nonexistent-domain-test-12345.com');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isCnameDangling', () => {
+    it('should return false for valid CNAME target', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isCnameDangling('google.com');
+      expect(result).toBe(false);
+    });
+
+    it('should return true for non-existent CNAME target', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const result = await resolver.isCnameDangling('nonexistent-domain-test-12345.com');
+      expect(result).toBe(true);
+    });
+  });
+});
+
 describe('DnsResolver advanced', () => {
   describe('with SRV check', () => {
     it('should check SRV records when enabled', async () => {

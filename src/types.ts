@@ -51,7 +51,7 @@ export interface ServiceFingerprint {
 }
 
 export interface DnsRecord {
-  type: 'A' | 'AAAA' | 'CNAME' | 'NS' | 'MX' | 'TXT';
+  type: 'A' | 'AAAA' | 'CNAME' | 'NS' | 'MX' | 'TXT' | 'SRV';
   value: string;
   ttl?: number;
 }

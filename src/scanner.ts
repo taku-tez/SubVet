@@ -14,8 +14,7 @@ import { DnsResolver } from './dns.js';
 import { HttpProber } from './http.js';
 import { findServiceByCname, fingerprints } from './fingerprints/index.js';
 import { escapeRegex } from './utils.js';
-
-const VERSION = '0.5.1';
+import { VERSION } from './version.js';
 
 export class Scanner {
   private dnsResolver: DnsResolver;
@@ -348,11 +347,18 @@ export class Scanner {
   }
 
   /**
-   * Check DNS fingerprint rules (dns_nxdomain, dns_cname)
+   * Check DNS fingerprint rules (dns_nxdomain, dns_cname, ns_nxdomain, mx_nxdomain, spf_include_nxdomain, srv_nxdomain)
    */
   private checkDnsFingerprints(
     service: ServiceFingerprint,
-    dns: { nxdomain: boolean; cname?: string },
+    dns: {
+      nxdomain: boolean;
+      cname?: string;
+      nsDangling?: string[];
+      mxDangling?: string[];
+      spfDangling?: string[];
+      srvDangling?: string[];
+    },
     cname: string | null
   ): string[] {
     const matches: string[] = [];
@@ -374,6 +380,30 @@ export class Scanner {
             if (pattern.test(cname)) {
               matches.push(`DNS: CNAME matches pattern "${rule.pattern}"`);
             }
+          }
+          break;
+
+        case 'ns_nxdomain':
+          if (dns.nsDangling && dns.nsDangling.length > 0) {
+            matches.push(`DNS: Dangling NS delegation (${dns.nsDangling.join(', ')})`);
+          }
+          break;
+
+        case 'mx_nxdomain':
+          if (dns.mxDangling && dns.mxDangling.length > 0) {
+            matches.push(`DNS: Dangling MX record (${dns.mxDangling.join(', ')})`);
+          }
+          break;
+
+        case 'spf_include_nxdomain':
+          if (dns.spfDangling && dns.spfDangling.length > 0) {
+            matches.push(`DNS: Dangling SPF include (${dns.spfDangling.join(', ')})`);
+          }
+          break;
+
+        case 'srv_nxdomain':
+          if (dns.srvDangling && dns.srvDangling.length > 0) {
+            matches.push(`DNS: Dangling SRV record (${dns.srvDangling.join(', ')})`);
           }
           break;
       }

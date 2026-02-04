@@ -61,6 +61,8 @@ subvet scan --stdin < subdomains.txt
 | `--check-spf` | Check SPF includes | false |
 | `--check-srv` | Check SRV records | false |
 | `--report <format>` | Output format (json/md/html) | json |
+| `--diff <baseline>` | Compare against baseline JSON | - |
+| `--diff-json` | Output diff as JSON | false |
 | `--summary` | Summary only | false |
 | `--pretty` | Pretty print JSON | false |
 | `-v, --verbose` | Show progress | false |
@@ -97,7 +99,7 @@ subvet fingerprint "GitHub Pages"
 
 ```json
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "timestamp": "2026-02-04T00:00:00.000Z",
   "summary": {
     "total": 1,
@@ -151,6 +153,62 @@ Dangling SPF includes enable email spoofing.
 ### SRV Records (`--check-srv`)
 
 Dangling SRV records can hijack services (autodiscover, SIP, etc.).
+
+## CI/CD Integration
+
+Use `--diff` to compare against a baseline and detect only **new** vulnerabilities.
+
+### Basic Workflow
+
+```bash
+# 1. Create baseline (store in repo or artifact)
+subvet scan -f subdomains.txt -o baseline.json
+
+# 2. In CI: compare current scan against baseline
+subvet scan -f subdomains.txt --diff baseline.json
+```
+
+### Exit Codes (Diff Mode)
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | No new vulnerabilities | ✅ Proceed |
+| 1 | New likely vulnerabilities | ⚠️ Review |
+| 2 | New confirmed vulnerabilities | ❌ Block |
+
+### GitHub Actions Example
+
+```yaml
+- name: Security Scan
+  run: |
+    subvet scan -f subdomains.txt --diff baseline.json
+  continue-on-error: false  # Fail on new vulns
+```
+
+### Diff Output
+
+```
+═══════════════════════════════════════════════════════
+                  SubVet Diff Report                    
+═══════════════════════════════════════════════════════
+
+Baseline: 2026-02-03T00:00:00Z (100 targets)
+Current:  2026-02-04T00:00:00Z (102 targets)
+
+─── Summary ───────────────────────────────────────────
+🔴 New vulnerable:  1
+✅ Resolved:        2
+   Unchanged:       99
+
+─── Details ───────────────────────────────────────────
+🔴 NEW: shop.example.com
+      Status: VULNERABLE
+      Service: AWS S3
+
+✅ RESOLVED: old-cdn.example.com
+      Was: LIKELY
+═══════════════════════════════════════════════════════
+```
 
 ## Supported Services
 

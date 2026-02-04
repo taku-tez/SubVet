@@ -93,25 +93,28 @@ export class DnsResolver {
       }
     }
 
-    // Try A records for the original domain
+    // Resolve A and AAAA in parallel for performance
+    const [ipv4Result, ipv6Result] = await Promise.allSettled([
+      this.withTimeout(resolve4(subdomain)),
+      this.withTimeout(resolve6(subdomain))
+    ]);
+
     let hasIpv4 = false;
-    try {
-      const ipv4 = await this.withTimeout(resolve4(subdomain));
-      if (ipv4 && ipv4.length > 0) {
-        for (const ip of ipv4) {
-          result.records.push({ type: 'A', value: ip });
-        }
-        result.resolved = true;
-        hasIpv4 = true;
+    let hasIpv6 = false;
+    let aNotFound = false;
+    let aaaaNotFound = false;
+
+    // Process A record result
+    if (ipv4Result.status === 'fulfilled' && ipv4Result.value?.length > 0) {
+      for (const ip of ipv4Result.value) {
+        result.records.push({ type: 'A', value: ip });
       }
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      if (error.code === 'ENOTFOUND') {
-        // No A records for original domain
-        if (!hasCname) {
-          // No CNAME and no A = NXDOMAIN
-          result.nxdomain = true;
-        }
+      result.resolved = true;
+      hasIpv4 = true;
+    } else if (ipv4Result.status === 'rejected') {
+      const error = ipv4Result.reason as NodeJS.ErrnoException;
+      if (error.code === 'ENOTFOUND' || error.code === 'ENODATA') {
+        aNotFound = true;
       } else if (error.message === 'DNS timeout') {
         result.error = result.error || 'DNS timeout';
       } else if (error.code === 'SERVFAIL' || error.code === 'ESERVFAIL') {
@@ -119,49 +122,42 @@ export class DnsResolver {
       }
     }
 
-    // Try AAAA records for the original domain
-    let hasIpv6 = false;
-    try {
-      const ipv6 = await this.withTimeout(resolve6(subdomain));
-      if (ipv6 && ipv6.length > 0) {
-        for (const ip of ipv6) {
-          result.records.push({ type: 'AAAA', value: ip });
-        }
-        result.resolved = true;
-        hasIpv6 = true;
+    // Process AAAA record result
+    if (ipv6Result.status === 'fulfilled' && ipv6Result.value?.length > 0) {
+      for (const ip of ipv6Result.value) {
+        result.records.push({ type: 'AAAA', value: ip });
       }
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      if (error.message === 'DNS timeout') {
+      result.resolved = true;
+      hasIpv6 = true;
+    } else if (ipv6Result.status === 'rejected') {
+      const error = ipv6Result.reason as NodeJS.ErrnoException;
+      if (error.code === 'ENOTFOUND' || error.code === 'ENODATA') {
+        aaaaNotFound = true;
+      } else if (error.message === 'DNS timeout') {
         result.error = result.error || 'DNS timeout';
       }
-      // AAAA failure is otherwise common, ignore
     }
 
     // Set IPv4/IPv6 flags
     result.hasIpv4 = hasIpv4;
     result.hasIpv6 = hasIpv6;
 
+    // Determine NXDOMAIN: only if no CNAME, no A, and no AAAA
+    if (!hasCname && aNotFound && aaaaNotFound) {
+      result.nxdomain = true;
+    }
+
     // If we have a CNAME, check if the final CNAME target resolves
     if (hasCname && finalCname && !hasIpv4 && !hasIpv6) {
-      // Try to resolve the final CNAME target
-      let cnameResolved = false;
-      try {
-        const cnameIpv4 = await this.withTimeout(resolve4(finalCname));
-        if (cnameIpv4 && cnameIpv4.length > 0) {
-          cnameResolved = true;
-        }
-      } catch {
-        // Try IPv6
-        try {
-          const cnameIpv6 = await this.withTimeout(resolve6(finalCname));
-          if (cnameIpv6 && cnameIpv6.length > 0) {
-            cnameResolved = true;
-          }
-        } catch {
-          // Final CNAME doesn't resolve
-        }
-      }
+      // Try to resolve the final CNAME target (A and AAAA in parallel)
+      const [cnameIpv4Result, cnameIpv6Result] = await Promise.allSettled([
+        this.withTimeout(resolve4(finalCname)),
+        this.withTimeout(resolve6(finalCname))
+      ]);
+
+      const cnameResolved = 
+        (cnameIpv4Result.status === 'fulfilled' && cnameIpv4Result.value?.length > 0) ||
+        (cnameIpv6Result.status === 'fulfilled' && cnameIpv6Result.value?.length > 0);
 
       if (!cnameResolved) {
         // CNAME exists but final target doesn't resolve - dangling
@@ -169,24 +165,15 @@ export class DnsResolver {
       }
     }
 
-    // Check NS delegation if enabled
-    if (this.checkNs) {
-      await this.checkNsDelegation(subdomain, result);
-    }
-
-    // Check MX records if enabled
-    if (this.checkMx) {
-      await this.checkMxRecords(subdomain, result);
-    }
-
-    // Check SPF records if enabled
-    if (this.checkSpf) {
-      await this.checkSpfRecords(subdomain, result);
-    }
-
-    // Check SRV records if enabled
-    if (this.checkSrv) {
-      await this.checkSrvRecords(subdomain, result);
+    // Run enabled checks in parallel for performance
+    const checks: Promise<void>[] = [];
+    if (this.checkNs) checks.push(this.checkNsDelegation(subdomain, result));
+    if (this.checkMx) checks.push(this.checkMxRecords(subdomain, result));
+    if (this.checkSpf) checks.push(this.checkSpfRecords(subdomain, result));
+    if (this.checkSrv) checks.push(this.checkSrvRecords(subdomain, result));
+    
+    if (checks.length > 0) {
+      await Promise.all(checks);
     }
 
     return result;
@@ -202,14 +189,11 @@ export class DnsResolver {
         result.nsRecords = nsRecords;
         result.records.push(...nsRecords.map(ns => ({ type: 'NS' as const, value: ns })));
         
-        // Check if NS targets resolve
-        const dangling: string[] = [];
-        for (const ns of nsRecords) {
-          const isDangling = await this.isNsDangling(ns);
-          if (isDangling) {
-            dangling.push(ns);
-          }
-        }
+        // Check if NS targets resolve (parallel)
+        const danglingChecks = await Promise.all(
+          nsRecords.map(async (ns) => ({ ns, isDangling: await this.isNsDangling(ns) }))
+        );
+        const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.ns);
         
         if (dangling.length > 0) {
           result.nsDangling = dangling;
@@ -225,16 +209,25 @@ export class DnsResolver {
   }
 
   /**
-   * Check if a nameserver appears to be dangling (doesn't resolve)
+   * Check if a target resolves (has A or AAAA records) - parallel check
+   */
+  private async targetResolves(target: string): Promise<boolean> {
+    const [ipv4Result, ipv6Result] = await Promise.allSettled([
+      this.withTimeout(resolve4(target)),
+      this.withTimeout(resolve6(target))
+    ]);
+
+    return (
+      (ipv4Result.status === 'fulfilled' && ipv4Result.value?.length > 0) ||
+      (ipv6Result.status === 'fulfilled' && ipv6Result.value?.length > 0)
+    );
+  }
+
+  /**
+   * Check if a nameserver appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isNsDangling(ns: string): Promise<boolean> {
-    try {
-      const ipv4 = await this.withTimeout(resolve4(ns));
-      return !ipv4 || ipv4.length === 0;
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      return error.code === 'ENOTFOUND' || error.code === 'ENODATA';
-    }
+    return !(await this.targetResolves(ns));
   }
 
   /**
@@ -250,14 +243,14 @@ export class DnsResolver {
           value: `${mx.priority} ${mx.exchange}` 
         })));
         
-        // Check if MX targets resolve
-        const dangling: string[] = [];
-        for (const mx of mxRecords) {
-          const isDangling = await this.isMxDangling(mx.exchange);
-          if (isDangling) {
-            dangling.push(mx.exchange);
-          }
-        }
+        // Check if MX targets resolve (parallel)
+        const danglingChecks = await Promise.all(
+          mxRecords.map(async (mx) => ({ 
+            exchange: mx.exchange, 
+            isDangling: await this.isMxDangling(mx.exchange) 
+          }))
+        );
+        const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.exchange);
         
         if (dangling.length > 0) {
           result.mxDangling = dangling;
@@ -273,16 +266,10 @@ export class DnsResolver {
   }
 
   /**
-   * Check if a mail server appears to be dangling (doesn't resolve)
+   * Check if a mail server appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isMxDangling(mx: string): Promise<boolean> {
-    try {
-      const ipv4 = await this.withTimeout(resolve4(mx));
-      return !ipv4 || ipv4.length === 0;
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      return error.code === 'ENOTFOUND' || error.code === 'ENODATA';
-    }
+    return !(await this.targetResolves(mx));
   }
 
   /**
@@ -304,14 +291,14 @@ export class DnsResolver {
             if (includeMatches) {
               result.spfIncludes = includeMatches.map(m => m.replace('include:', ''));
               
-              // Check if include targets resolve
-              const dangling: string[] = [];
-              for (const include of result.spfIncludes) {
-                const isDangling = await this.isSpfIncludeDangling(include);
-                if (isDangling) {
-                  dangling.push(include);
-                }
-              }
+              // Check if include targets resolve (parallel)
+              const danglingChecks = await Promise.all(
+                result.spfIncludes.map(async (include) => ({
+                  include,
+                  isDangling: await this.isSpfIncludeDangling(include)
+                }))
+              );
+              const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.include);
               
               if (dangling.length > 0) {
                 result.spfDangling = dangling;
@@ -360,56 +347,62 @@ export class DnsResolver {
     ];
 
     const allSrvRecords: string[] = [];
-    const danglingRecords: string[] = [];
+    const targetsToCheck: { prefix: string; target: string }[] = [];
 
-    for (const prefix of srvPrefixes) {
-      const srvDomain = `${prefix}.${subdomain}`;
-      try {
-        const srvRecords = await this.withTimeout(resolveSrv(srvDomain));
-        if (srvRecords && srvRecords.length > 0) {
-          for (const srv of srvRecords) {
-            const target = srv.name;
-            allSrvRecords.push(`${prefix}: ${target}`);
-            result.records.push({ 
-              type: 'SRV' as any, 
-              value: `${prefix} ${srv.priority} ${srv.weight} ${srv.port} ${target}` 
-            });
+    // Resolve all SRV prefixes in parallel
+    const srvResults = await Promise.allSettled(
+      srvPrefixes.map(async (prefix) => {
+        const srvDomain = `${prefix}.${subdomain}`;
+        const records = await this.withTimeout(resolveSrv(srvDomain));
+        return { prefix, records };
+      })
+    );
 
-            // Check if SRV target resolves
-            const isDangling = await this.isSrvTargetDangling(target);
-            if (isDangling) {
-              danglingRecords.push(`${prefix}: ${target}`);
-            }
-          }
+    // Collect all SRV records and targets
+    for (const srvResult of srvResults) {
+      if (srvResult.status === 'fulfilled' && srvResult.value.records?.length > 0) {
+        const { prefix, records } = srvResult.value;
+        for (const srv of records) {
+          const target = srv.name;
+          allSrvRecords.push(`${prefix}: ${target}`);
+          result.records.push({ 
+            type: 'SRV', 
+            value: `${prefix} ${srv.priority} ${srv.weight} ${srv.port} ${target}` 
+          });
+          targetsToCheck.push({ prefix, target });
         }
-      } catch {
-        // No SRV record for this prefix, that's normal
+      }
+    }
+
+    // Check all targets for dangling in parallel
+    if (targetsToCheck.length > 0) {
+      const danglingChecks = await Promise.all(
+        targetsToCheck.map(async ({ prefix, target }) => ({
+          label: `${prefix}: ${target}`,
+          isDangling: await this.isSrvTargetDangling(target)
+        }))
+      );
+      const danglingRecords = danglingChecks.filter(c => c.isDangling).map(c => c.label);
+      
+      if (danglingRecords.length > 0) {
+        result.srvDangling = danglingRecords;
       }
     }
 
     if (allSrvRecords.length > 0) {
       result.srvRecords = allSrvRecords;
     }
-    if (danglingRecords.length > 0) {
-      result.srvDangling = danglingRecords;
-    }
   }
 
   /**
-   * Check if an SRV target is dangling
+   * Check if an SRV target is dangling (doesn't resolve via A or AAAA)
    */
   async isSrvTargetDangling(target: string): Promise<boolean> {
     // Skip if target is '.' (null target)
     if (target === '.' || target === '') {
       return false;
     }
-    try {
-      const ipv4 = await this.withTimeout(resolve4(target));
-      return !ipv4 || ipv4.length === 0;
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      return error.code === 'ENOTFOUND' || error.code === 'ENODATA';
-    }
+    return !(await this.targetResolves(target));
   }
 
   /**
@@ -459,16 +452,10 @@ export class DnsResolver {
   }
 
   /**
-   * Check if a CNAME target appears to be dangling
+   * Check if a CNAME target appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isCnameDangling(cname: string): Promise<boolean> {
-    try {
-      const ipv4 = await this.withTimeout(resolve4(cname));
-      return !ipv4 || ipv4.length === 0;
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      return error.code === 'ENOTFOUND' || error.code === 'ENODATA';
-    }
+    return !(await this.targetResolves(cname));
   }
 }
 

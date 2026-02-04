@@ -138,6 +138,44 @@ describe('generateMarkdownReport', () => {
     const md = generateMarkdownReport(output);
     expect(md).toContain('CNAME match');
   });
+
+  it('should escape pipe characters in table cells', () => {
+    const output = createMockOutput([
+      createMockResult({
+        status: 'vulnerable',
+        evidence: ['Pattern: foo|bar|baz']
+      })
+    ]);
+    const md = generateMarkdownReport(output);
+    // Pipes should be escaped to prevent table corruption
+    expect(md).toContain('foo\\|bar\\|baz');
+    expect(md).not.toMatch(/\|foo\|bar\|baz\|/); // Should NOT have unescaped pipes
+  });
+
+  it('should handle newlines in evidence', () => {
+    const output = createMockOutput([
+      createMockResult({
+        status: 'vulnerable',
+        evidence: ['Line1\nLine2\nLine3']
+      })
+    ]);
+    const md = generateMarkdownReport(output);
+    // Newlines should be converted to <br>
+    expect(md).toContain('<br>');
+    // Original newlines should be replaced (check the cell content doesn't have raw \n)
+    expect(md).toContain('Line1<br>Line2<br>Line3');
+  });
+
+  it('should escape special characters in service names', () => {
+    const output = createMockOutput([
+      createMockResult({
+        status: 'vulnerable',
+        service: 'Service|With|Pipes'
+      })
+    ]);
+    const md = generateMarkdownReport(output);
+    expect(md).toContain('Service\\|With\\|Pipes');
+  });
 });
 
 describe('generateHtmlReport', () => {

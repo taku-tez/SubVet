@@ -11,9 +11,10 @@ import chalk from 'chalk';
 import { Scanner } from './scanner.js';
 import { getAllFingerprints } from './fingerprints/index.js';
 import { generateReport, type ReportFormat } from './report.js';
-import type { ScanResult } from './types.js';
-
-const VERSION = '0.3.0';
+import { compareScans, formatDiffText, getDiffExitCode } from './diff.js';
+import { isValidDomain, parseSubdomains } from './utils.js';
+import { VERSION } from './version.js';
+import type { ScanResult, ScanOutput } from './types.js';
 
 const program = new Command();
 
@@ -41,16 +42,22 @@ program
   .option('--pretty', 'Pretty print JSON output')
   .option('--summary', 'Show summary only (no full results)')
   .option('--report <format>', 'Generate report (html, md, json)')
+  .option('--diff <baseline>', 'Compare against baseline JSON file (CI mode)')
+  .option('--diff-json', 'Output diff as JSON (with --diff)')
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
 
       // Collect subdomains from various sources
       if (options.stdin) {
-        subdomains = await readFromStdin();
+        subdomains = await readFromStdin(options.verbose);
       } else if (options.file) {
-        subdomains = await readFromFile(options.file);
+        subdomains = await readFromFile(options.file, options.verbose);
       } else if (target) {
+        if (!isValidDomain(target)) {
+          console.error(chalk.red(`Error: Invalid domain format: ${target}`));
+          process.exit(1);
+        }
         subdomains = [target];
       } else {
         console.error(chalk.red('Error: Please provide a target, file, or use --stdin'));
@@ -107,7 +114,37 @@ program
       }
 
       // Output to stdout
-      if (options.report) {
+      if (options.diff) {
+        // Diff mode: compare against baseline
+        const baselineContent = await readFile(options.diff, 'utf-8');
+        let baseline: ScanOutput;
+        try {
+          baseline = JSON.parse(baselineContent);
+        } catch {
+          console.error(chalk.red(`Error: Invalid JSON in baseline file: ${options.diff}`));
+          process.exit(1);
+        }
+
+        // Validate baseline format
+        if (!baseline.version || !baseline.results || !Array.isArray(baseline.results)) {
+          console.error(chalk.red(`Error: Invalid baseline format. Expected SubVet scan output.`));
+          process.exit(1);
+        }
+
+        const diff = compareScans(baseline, output);
+
+        if (options.diffJson) {
+          const json = options.pretty
+            ? JSON.stringify(diff, null, 2)
+            : JSON.stringify(diff);
+          console.log(json);
+        } else {
+          console.log(formatDiffText(diff));
+        }
+
+        // Exit with code based on new vulnerabilities only
+        process.exit(getDiffExitCode(diff));
+      } else if (options.report) {
         // Generate report in specified format
         const reportContent = generateReport(output, options.report as ReportFormat);
         console.log(reportContent);
@@ -127,11 +164,13 @@ program
         console.log(json);
       }
 
-      // Exit with error code if vulnerabilities found
-      if (output.summary.vulnerable > 0) {
-        process.exit(2);
-      } else if (output.summary.likely > 0) {
-        process.exit(1);
+      // Exit with error code if vulnerabilities found (not in diff mode)
+      if (!options.diff) {
+        if (output.summary.vulnerable > 0) {
+          process.exit(2);
+        } else if (output.summary.likely > 0) {
+          process.exit(1);
+        }
       }
 
     } catch (error) {
@@ -153,6 +192,12 @@ program
   .option('--json', 'Output as JSON')
   .action(async (subdomain, options) => {
     try {
+      // Validate domain format
+      if (!isValidDomain(subdomain)) {
+        console.error(chalk.red(`Error: Invalid domain format: ${subdomain}`));
+        process.exit(1);
+      }
+
       // Validate timeout
       const timeout = Number(options.timeout);
       if (!Number.isFinite(timeout) || timeout <= 0) {
@@ -260,31 +305,49 @@ program
 
 // === Helper functions ===
 
-async function readFromFile(path: string): Promise<string[]> {
+async function readFromFile(path: string, verbose = false): Promise<string[]> {
   const content = await readFile(path, 'utf-8');
-  return content
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line && !line.startsWith('#'));
+  // Use parseSubdomains for unified normalization (trim, lowercase, filter comments)
+  const parsed = parseSubdomains(content);
+  
+  // Validate domains
+  const valid: string[] = [];
+  for (const domain of parsed) {
+    if (isValidDomain(domain)) {
+      valid.push(domain);
+    } else if (verbose) {
+      console.error(chalk.yellow(`Skipped invalid domain: ${domain}`));
+    }
+  }
+  return valid;
 }
 
-async function readFromStdin(): Promise<string[]> {
+async function readFromStdin(verbose = false): Promise<string[]> {
   return new Promise((resolve) => {
-    const lines: string[] = [];
+    const chunks: string[] = [];
     const rl = createInterface({
       input: process.stdin,
       crlfDelay: Infinity
     });
 
     rl.on('line', (line) => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        lines.push(trimmed);
-      }
+      chunks.push(line);
     });
 
     rl.on('close', () => {
-      resolve(lines);
+      // Use parseSubdomains for unified normalization (trim, lowercase, filter comments)
+      const parsed = parseSubdomains(chunks.join('\n'));
+      
+      // Validate domains
+      const valid: string[] = [];
+      for (const domain of parsed) {
+        if (isValidDomain(domain)) {
+          valid.push(domain);
+        } else if (verbose) {
+          console.error(chalk.yellow(`Skipped invalid domain: ${domain}`));
+        }
+      }
+      resolve(valid);
     });
   });
 }

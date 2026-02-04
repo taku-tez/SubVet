@@ -117,4 +117,76 @@ describe('CLI', () => {
       expect(result.version).toBeDefined();
     }, 30000);
   });
+
+  describe('domain validation', () => {
+    it('should reject invalid domain in check command', async () => {
+      try {
+        await execAsync(`node ${cliPath} check "not a valid domain"`);
+        expect(true).toBe(false); // Should not reach here
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid domain format');
+      }
+    });
+
+    it('should reject invalid domain in scan command', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan "spaces not allowed"`);
+        expect(true).toBe(false); // Should not reach here
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid domain format');
+      }
+    });
+
+    it('should accept valid domain format', async () => {
+      // This just validates the format, doesn't do network check
+      const { stdout } = await execAsync(`node ${cliPath} fingerprint "AWS S3"`);
+      expect(stdout).toContain('AWS S3');
+    });
+  });
+
+  describe('diff option', () => {
+    it('should show diff option in help', async () => {
+      const { stdout } = await execAsync(`node ${cliPath} scan --help`);
+      expect(stdout).toContain('--diff');
+      expect(stdout).toContain('baseline');
+    });
+
+    it('should error on invalid baseline file', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan example.com --diff=/nonexistent/file.json`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.message).toContain('ENOENT');
+      }
+    });
+  });
+
+  describe('numeric option validation', () => {
+    it('should reject invalid timeout value', async () => {
+      try {
+        await execAsync(`node ${cliPath} check google.com --timeout=abc`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid timeout value');
+      }
+    });
+
+    it('should reject negative timeout value', async () => {
+      try {
+        await execAsync(`node ${cliPath} check google.com --timeout=-1000`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid timeout value');
+      }
+    });
+
+    it('should reject invalid concurrency value', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan google.com --concurrency=abc`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid concurrency value');
+      }
+    });
+  });
 });

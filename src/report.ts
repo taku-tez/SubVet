@@ -148,7 +148,11 @@ export function generateMarkdownReport(output: ScanOutput): string {
 |-----------|---------|----------|-----|
 `;
     for (const r of vulnerableResults) {
-      md += `| \`${r.subdomain}\` | ${r.service || '-'} | ${r.evidence.join('; ')} | ${r.poc || '-'} |\n`;
+      const subdomain = escapeMarkdownCell(r.subdomain);
+      const service = escapeMarkdownCell(r.service || '-');
+      const evidence = escapeMarkdownCell(r.evidence.join('; '));
+      const poc = escapeMarkdownCell(r.poc || '-');
+      md += `| \`${subdomain}\` | ${service} | ${evidence} | ${poc} |\n`;
     }
     md += '\n';
   }
@@ -160,7 +164,10 @@ export function generateMarkdownReport(output: ScanOutput): string {
 |-----------|---------|----------|
 `;
     for (const r of likelyResults) {
-      md += `| \`${r.subdomain}\` | ${r.service || '-'} | ${r.evidence.join('; ')} |\n`;
+      const subdomain = escapeMarkdownCell(r.subdomain);
+      const service = escapeMarkdownCell(r.service || '-');
+      const evidence = escapeMarkdownCell(r.evidence.join('; '));
+      md += `| \`${subdomain}\` | ${service} | ${evidence} |\n`;
     }
     md += '\n';
   }
@@ -172,7 +179,9 @@ export function generateMarkdownReport(output: ScanOutput): string {
 |-----------|----------|
 `;
     for (const r of potentialResults) {
-      md += `| \`${r.subdomain}\` | ${r.evidence.join('; ')} |\n`;
+      const subdomain = escapeMarkdownCell(r.subdomain);
+      const evidence = escapeMarkdownCell(r.evidence.join('; '));
+      md += `| \`${subdomain}\` | ${evidence} |\n`;
     }
     md += '\n';
   }
@@ -194,6 +203,18 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/**
+ * Escape Markdown table cell special characters
+ * Handles: | (pipe), newlines, and other problematic chars
+ */
+function escapeMarkdownCell(text: string): string {
+  return text
+    .replace(/\|/g, '\\|')           // Escape pipe
+    .replace(/\r?\n/g, '<br>')       // Convert newlines to <br>
+    .replace(/\s+/g, ' ')            // Collapse multiple whitespace
+    .trim();
 }
 
 /**

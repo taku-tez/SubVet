@@ -1,5 +1,124 @@
 # Changelog
 
+## v0.7.0 (2026-02-04)
+
+### 🚀 New Features
+
+**CI/CD Diff Mode** (`--diff`)
+- Compare current scan against a baseline JSON file
+- Detect new vulnerabilities, resolved issues, and status changes
+- Exit codes optimized for CI pipelines:
+  - `0`: No new vulnerabilities (OK to proceed)
+  - `1`: New likely vulnerabilities (warning)
+  - `2`: New confirmed vulnerabilities (fail)
+- `--diff-json` option for JSON output
+- Human-readable diff report with severity sorting
+
+### Usage Examples
+
+```bash
+# Save baseline
+subvet scan -f subdomains.txt -o baseline.json
+
+# Later: compare against baseline
+subvet scan -f subdomains.txt --diff baseline.json
+
+# CI pipeline with JSON output
+subvet scan -f subdomains.txt --diff baseline.json --diff-json
+echo "Exit code: $?"
+```
+
+### Tests
+- 238 tests (236 passed, 2 skipped)
+- 16 new diff module tests added
+
+---
+
+## v0.6.2 (2026-02-04)
+
+### 🐛 Bug Fixes
+
+**指紋ルール型の実装** (FB #2)
+- `checkDnsFingerprints()` に `ns_nxdomain`, `mx_nxdomain`, `spf_include_nxdomain`, `srv_nxdomain` を追加
+- `nsDangling`, `mxDangling`, `spfDangling`, `srvDangling` 配列に基づいて評価
+- 各ルールマッチ時に evidence を追加
+
+### Tests
+- 222 tests (220 passed, 2 skipped)
+- DNS dangling fingerprint rule テスト4件追加
+
+---
+
+## v0.6.1 (2026-02-04)
+
+### 🚀 Performance Improvements
+
+1. **DNS解決の並列化**
+   - A/AAAA レコードを `Promise.allSettled()` で並列取得
+   - CNAME ターゲットの A/AAAA も並列化
+   - 約2倍の速度向上
+
+2. **ダングリングチェックの並列化**
+   - NS/MX/SPF/SRV チェックを `Promise.all()` で並列実行
+   - 各チェック内のターゲット解決も並列化
+   - SRV プレフィックス（7種）の解決も並列化
+
+3. **共通ロジックの抽出**
+   - `targetResolves()` ヘルパーメソッド追加
+   - `isNsDangling()`, `isMxDangling()`, `isSrvTargetDangling()`, `isCnameDangling()` を統一
+   - 重複コード削減（dns.ts: 546→468行、-14%）
+
+### Code Quality
+- 型安全性向上（`Promise.allSettled` の戻り値型）
+- エラーハンドリングの統一
+
+---
+
+## v0.6.0 (2026-02-04)
+
+### 🚀 Improvements
+
+1. **バージョン統一** (#1)
+   - `package.json` を唯一のソースとして統一
+   - `src/version.ts` モジュール追加
+   - CLI, Scanner, HTTP User-Agent が全て同じバージョンを参照
+   - READMEのJSON例も統一
+
+2. **IPv6対応のダングリング判定** (#2)
+   - `isNsDangling()` / `isMxDangling()` / `isSrvTargetDangling()` / `isCnameDangling()`
+   - A レコードだけでなく AAAA レコードも確認
+   - IPv6-only のターゲットを誤検知しなくなった
+
+3. **NXDOMAIN判定の修正** (#2-2)
+   - A レコードの ENOTFOUND 時点で nxdomain を設定しないように変更
+   - A と AAAA の両方が ENOTFOUND かつ CNAME なしの場合のみ nxdomain = true
+   - AAAA が存在するのに NXDOMAIN と誤判定される問題を修正
+
+4. **SRV型定義追加** (#3)
+   - `types.ts` の `DnsRecord.type` に `'SRV'` を追加
+   - `dns.ts` の `as any` キャストを削除し型安全に
+
+5. **CLI入力のドメイン検証** (#4)
+   - `isValidDomain()` を `check` / `scan` コマンドで適用
+   - ファイル/stdin からの入力も検証
+   - `-v` オプションで無効ドメインをスキップ時に警告表示
+
+6. **Markdownレポートの特殊文字エスケープ** (#5)
+   - `|` (パイプ) を `\|` にエスケープ
+   - 改行を `<br>` に変換
+   - テーブル崩れ防止
+
+7. **入力処理の統一** (#6)
+   - `parseSubdomains()` を CLI 入力処理で利用
+   - `readFromFile` / `readFromStdin` が統一された正規化ロジックを使用
+   - trim, lowercase, コメント除去を一箇所に集約
+
+### Tests
+- 218 tests (216 passed, 2 skipped)
+- version, DNS dangling, CLI validation, report escaping テスト追加
+
+---
+
 ## v0.5.1 (2026-02-04)
 
 ### 🐛 Bug Fixes (FB対応 #2)
