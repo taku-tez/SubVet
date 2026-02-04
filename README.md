@@ -178,14 +178,70 @@ subvet scan -f subdomains.txt --diff baseline.json
 | 1 | New likely vulnerabilities | ⚠️ Review |
 | 2 | New confirmed vulnerabilities | ❌ Block |
 
-### GitHub Actions Example
+### GitHub Actions
+
+#### Quick Start (Reusable Action)
 
 ```yaml
-- name: Security Scan
-  run: |
-    subvet scan -f subdomains.txt --diff baseline.json
-  continue-on-error: false  # Fail on new vulns
+- name: SubVet Scan
+  uses: taku-tez/SubVet@v0.8
+  with:
+    subdomains: subdomains.txt
+    baseline: baseline.json  # optional, enables diff mode
+    slack-webhook: ${{ secrets.SLACK_WEBHOOK }}  # optional
 ```
+
+#### Action Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `subdomains` | Path to subdomains file | `subdomains.txt` |
+| `baseline` | Baseline JSON for diff mode | - |
+| `slack-webhook` | Slack webhook URL | - |
+| `slack-on` | Notify condition: always/issues/new | `new` |
+| `check-ns` | Check NS delegation | `true` |
+| `check-mx` | Check MX records | `true` |
+| `check-spf` | Check SPF includes | `false` |
+
+#### Action Outputs
+
+| Output | Description |
+|--------|-------------|
+| `vulnerable` | Number of vulnerable subdomains |
+| `likely` | Number of likely vulnerable |
+| `total` | Total subdomains scanned |
+| `exit-code` | 0=ok, 1=likely, 2=vulnerable |
+
+#### Full Workflow Example
+
+```yaml
+name: SubVet Security Scan
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6 AM
+  push:
+    paths: ['subdomains.txt']
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: SubVet Scan
+        id: subvet
+        uses: taku-tez/SubVet@v0.8
+        with:
+          subdomains: subdomains.txt
+          baseline: baseline.json
+          slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: Fail on vulnerabilities
+        if: steps.subvet.outputs.exit-code == '2'
+        run: exit 1
+```
+
+See [.github/workflows/subvet.yml](.github/workflows/subvet.yml) for a complete example with auto-baseline updates and issue creation.
 
 ## Slack Integration
 

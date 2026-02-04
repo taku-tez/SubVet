@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.9.0 (2026-02-04)
+
+### 🚀 New Features
+
+**GitHub Actions Integration**
+- Official reusable GitHub Action (`taku-tez/SubVet@v0.8`)
+- Complete workflow template with:
+  - Scheduled scans (daily)
+  - Diff mode with auto-baseline updates
+  - Slack notifications
+  - Auto-create issues on vulnerabilities
+  - Job summary with results
+- Action inputs: subdomains, baseline, slack-webhook, slack-on, check-ns/mx/spf
+- Action outputs: vulnerable, likely, total, exit-code
+
+### Usage
+
+```yaml
+- uses: taku-tez/SubVet@v0.8
+  with:
+    subdomains: subdomains.txt
+    baseline: baseline.json
+    slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### Files Added
+- `action.yml` - Reusable composite action
+- `.github/workflows/subvet.yml` - Complete workflow template
+
+---
+
 ## v0.8.0 (2026-02-04)
 
 ### 🚀 New Features

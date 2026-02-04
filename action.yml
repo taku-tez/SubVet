@@ -1,0 +1,146 @@
+# SubVet GitHub Action
+# Scan subdomains for takeover vulnerabilities
+#
+# Usage:
+#   - uses: taku-tez/SubVet@v0.8
+#     with:
+#       subdomains: subdomains.txt
+#       baseline: baseline.json  # optional
+#       slack-webhook: ${{ secrets.SLACK_WEBHOOK }}  # optional
+
+name: 'SubVet'
+description: 'Scan subdomains for takeover vulnerabilities'
+author: 'taku-tez'
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  subdomains:
+    description: 'Path to subdomains file (one per line)'
+    required: true
+    default: 'subdomains.txt'
+  baseline:
+    description: 'Path to baseline JSON file for diff mode'
+    required: false
+  slack-webhook:
+    description: 'Slack webhook URL for notifications'
+    required: false
+  slack-on:
+    description: 'When to notify: always, issues, new'
+    required: false
+    default: 'new'
+  check-ns:
+    description: 'Check NS delegation'
+    required: false
+    default: 'true'
+  check-mx:
+    description: 'Check MX records'
+    required: false
+    default: 'true'
+  check-spf:
+    description: 'Check SPF includes'
+    required: false
+    default: 'false'
+  timeout:
+    description: 'Request timeout in ms'
+    required: false
+    default: '10000'
+  concurrency:
+    description: 'Number of concurrent requests'
+    required: false
+    default: '10'
+  output:
+    description: 'Output file path'
+    required: false
+    default: 'subvet-results.json'
+
+outputs:
+  vulnerable:
+    description: 'Number of vulnerable subdomains'
+    value: ${{ steps.scan.outputs.vulnerable }}
+  likely:
+    description: 'Number of likely vulnerable subdomains'
+    value: ${{ steps.scan.outputs.likely }}
+  total:
+    description: 'Total subdomains scanned'
+    value: ${{ steps.scan.outputs.total }}
+  exit-code:
+    description: 'Exit code (0=ok, 1=likely, 2=vulnerable)'
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install SubVet
+      shell: bash
+      run: npm install -g subvet
+
+    - name: Run SubVet
+      id: scan
+      shell: bash
+      run: |
+        # Build command
+        CMD="subvet scan -f ${{ inputs.subdomains }}"
+        CMD="$CMD -t ${{ inputs.timeout }}"
+        CMD="$CMD -c ${{ inputs.concurrency }}"
+        CMD="$CMD -o ${{ inputs.output }}"
+        CMD="$CMD --pretty -v"
+        
+        # Add optional flags
+        if [ "${{ inputs.check-ns }}" == "true" ]; then
+          CMD="$CMD --check-ns"
+        fi
+        if [ "${{ inputs.check-mx }}" == "true" ]; then
+          CMD="$CMD --check-mx"
+        fi
+        if [ "${{ inputs.check-spf }}" == "true" ]; then
+          CMD="$CMD --check-spf"
+        fi
+        
+        # Add diff mode if baseline exists
+        if [ -n "${{ inputs.baseline }}" ] && [ -f "${{ inputs.baseline }}" ]; then
+          CMD="$CMD --diff ${{ inputs.baseline }}"
+        fi
+        
+        # Add Slack notification
+        if [ -n "${{ inputs.slack-webhook }}" ]; then
+          CMD="$CMD --slack-webhook '${{ inputs.slack-webhook }}' --slack-on ${{ inputs.slack-on }}"
+        fi
+        
+        echo "Running: $CMD"
+        
+        # Run and capture exit code
+        set +e
+        eval $CMD
+        EXIT_CODE=$?
+        set -e
+        
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        # Parse results
+        if [ -f "${{ inputs.output }}" ]; then
+          VULNERABLE=$(jq '.summary.vulnerable' ${{ inputs.output }})
+          LIKELY=$(jq '.summary.likely' ${{ inputs.output }})
+          TOTAL=$(jq '.summary.total' ${{ inputs.output }})
+          
+          echo "vulnerable=$VULNERABLE" >> $GITHUB_OUTPUT
+          echo "likely=$LIKELY" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+        fi
+        
+        exit $EXIT_CODE
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: subvet-results
+        path: ${{ inputs.output }}
+        retention-days: 30

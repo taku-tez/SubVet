@@ -1,0 +1,185 @@
+# SubVet - Subdomain Takeover Scanner
+# This workflow runs SubVet to detect subdomain takeover vulnerabilities
+#
+# Usage:
+# 1. Copy this file to your repo's .github/workflows/ directory
+# 2. Create a subdomains.txt file with your subdomains (one per line)
+# 3. Optionally add a baseline.json for diff mode
+# 4. Set SLACK_WEBHOOK secret for notifications (optional)
+
+name: SubVet Security Scan
+
+on:
+  # Run on schedule (daily at 6 AM UTC)
+  schedule:
+    - cron: '0 6 * * *'
+  
+  # Run on push to main (for baseline updates)
+  push:
+    branches: [main, master]
+    paths:
+      - 'subdomains.txt'
+      - '.github/workflows/subvet.yml'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      scan_mode:
+        description: 'Scan mode'
+        required: false
+        default: 'diff'
+        type: choice
+        options:
+          - full
+          - diff
+      notify:
+        description: 'Send Slack notification'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  SUBDOMAINS_FILE: subdomains.txt
+  BASELINE_FILE: baseline.json
+
+jobs:
+  scan:
+    name: Subdomain Takeover Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install SubVet
+        run: npm install -g subvet
+
+      - name: Check for subdomains file
+        id: check-subdomains
+        run: |
+          if [ -f "${{ env.SUBDOMAINS_FILE }}" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "count=$(wc -l < ${{ env.SUBDOMAINS_FILE }})" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "::error::Subdomains file not found: ${{ env.SUBDOMAINS_FILE }}"
+            exit 1
+          fi
+
+      - name: Check for baseline
+        id: check-baseline
+        run: |
+          if [ -f "${{ env.BASELINE_FILE }}" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run SubVet (Full Scan)
+        if: steps.check-baseline.outputs.found == 'false' || github.event.inputs.scan_mode == 'full'
+        id: full-scan
+        run: |
+          echo "Running full scan on ${{ steps.check-subdomains.outputs.count }} subdomains..."
+          subvet scan -f ${{ env.SUBDOMAINS_FILE }} \
+            --check-ns --check-mx --check-spf \
+            -o scan-results.json \
+            --pretty \
+            -v
+        continue-on-error: true
+
+      - name: Run SubVet (Diff Scan)
+        if: steps.check-baseline.outputs.found == 'true' && github.event.inputs.scan_mode != 'full'
+        id: diff-scan
+        run: |
+          echo "Running diff scan against baseline..."
+          subvet scan -f ${{ env.SUBDOMAINS_FILE }} \
+            --check-ns --check-mx --check-spf \
+            --diff ${{ env.BASELINE_FILE }} \
+            -o scan-results.json \
+            --pretty \
+            -v
+        continue-on-error: true
+
+      - name: Send Slack Notification
+        if: env.SLACK_WEBHOOK != '' && (github.event.inputs.notify != 'false')
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -f scan-results.json ]; then
+            # For diff mode, check if there are new issues
+            if [ -f "${{ env.BASELINE_FILE }}" ] && [ "${{ github.event.inputs.scan_mode }}" != "full" ]; then
+              subvet scan -f ${{ env.SUBDOMAINS_FILE }} \
+                --diff ${{ env.BASELINE_FILE }} \
+                --slack-webhook "$SLACK_WEBHOOK" \
+                --slack-on new
+            else
+              subvet scan -f ${{ env.SUBDOMAINS_FILE }} \
+                --slack-webhook "$SLACK_WEBHOOK" \
+                --slack-on issues
+            fi
+          fi
+        continue-on-error: true
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: subvet-results-${{ github.run_number }}
+          path: scan-results.json
+          retention-days: 30
+
+      - name: Update baseline (on push to main)
+        if: github.event_name == 'push' && steps.full-scan.outcome == 'success'
+        run: |
+          if [ -f scan-results.json ]; then
+            cp scan-results.json ${{ env.BASELINE_FILE }}
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add ${{ env.BASELINE_FILE }}
+            git diff --cached --quiet || git commit -m "chore: update SubVet baseline [skip ci]"
+            git push
+          fi
+
+      - name: Create issue on vulnerabilities
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## SubVet detected potential vulnerabilities\n\n';
+            body += 'The scheduled security scan found issues that need attention.\n\n';
+            body += '### Actions Required\n';
+            body += '1. Review the scan results in the workflow artifacts\n';
+            body += '2. Investigate flagged subdomains\n';
+            body += '3. Remove or reconfigure vulnerable DNS records\n\n';
+            body += `[View Workflow Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 SubVet: Subdomain Takeover Vulnerabilities Detected',
+              body: body,
+              labels: ['security', 'subdomain-takeover']
+            });
+
+      - name: Summary
+        run: |
+          echo "## SubVet Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f scan-results.json ]; then
+            echo "### Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat scan-results.json | jq '.summary' >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check exit status
+        run: |
+          if [ "${{ steps.full-scan.outcome }}" == "failure" ] || [ "${{ steps.diff-scan.outcome }}" == "failure" ]; then
+            echo "::error::Vulnerabilities detected! Check scan results."
+            exit 1
+          fi
