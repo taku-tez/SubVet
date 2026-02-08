@@ -144,7 +144,7 @@ export class Scanner {
     if (this.options.httpProbe && (result.dns.resolved || result.dns.nxdomain)) {
       result.http = await this.httpProber.probe(subdomain);
 
-      if (matchedService && result.http.body) {
+      if (matchedService && result.http) {
         const { matches, confidence, requiredMet, negativeMatch } = checkFingerprints(matchedService, result.http);
         const minConfidence = matchedService.minConfidence ?? CONFIDENCE_DEFAULT_MIN;
         
@@ -179,7 +179,7 @@ export class Scanner {
       }
 
       // Generic checks for unrecognized services
-      if (!matchedService && result.http.body) {
+      if (!matchedService && result.http?.body) {
         const genericChecks = checkGenericPatterns(result.http.body, result.http.status);
         if (genericChecks.length > 0) {
           result.evidence.push(...genericChecks);

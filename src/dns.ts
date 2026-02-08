@@ -246,24 +246,43 @@ export class DnsResolver {
 
   /**
    * Check if a target resolves (has A or AAAA records) - parallel check
+   * Returns 'resolved', 'not_found' (permanent NXDOMAIN/ENODATA), or 'transient_error' (SERVFAIL/timeout)
    */
-  private async targetResolves(target: string): Promise<boolean> {
+  private async targetResolves(target: string): Promise<'resolved' | 'not_found' | 'transient_error'> {
     const [ipv4Result, ipv6Result] = await Promise.allSettled([
       this.withTimeout(resolve4(target)),
       this.withTimeout(resolve6(target))
     ]);
 
-    return (
+    if (
       (ipv4Result.status === 'fulfilled' && ipv4Result.value?.length > 0) ||
       (ipv6Result.status === 'fulfilled' && ipv6Result.value?.length > 0)
+    ) {
+      return 'resolved';
+    }
+
+    // Check if any error is transient (SERVFAIL/timeout)
+    const errors: NodeJS.ErrnoException[] = [];
+    if (ipv4Result.status === 'rejected') errors.push(ipv4Result.reason as NodeJS.ErrnoException);
+    if (ipv6Result.status === 'rejected') errors.push(ipv6Result.reason as NodeJS.ErrnoException);
+
+    const hasTransient = errors.some(e =>
+      e.code === 'SERVFAIL' || e.code === 'ESERVFAIL' || e.message === 'DNS timeout'
     );
+
+    if (hasTransient) {
+      return 'transient_error';
+    }
+
+    return 'not_found';
   }
 
   /**
    * Check if a nameserver appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isNsDangling(ns: string): Promise<boolean> {
-    return !(await this.targetResolves(this.normalizeDomain(ns)));
+    const status = await this.targetResolves(this.normalizeDomain(ns));
+    return status === 'not_found';
   }
 
   /**
@@ -305,7 +324,8 @@ export class DnsResolver {
    * Check if a mail server appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isMxDangling(mx: string): Promise<boolean> {
-    return !(await this.targetResolves(this.normalizeDomain(mx)));
+    const status = await this.targetResolves(this.normalizeDomain(mx));
+    return status === 'not_found';
   }
 
   /**
@@ -445,7 +465,7 @@ export class DnsResolver {
       const danglingChecks = await Promise.all(
         [...referencedDomains].map(async (domain) => ({
           domain,
-          isDangling: !(await this.targetResolves(domain))
+          isDangling: (await this.targetResolves(domain)) === 'not_found'
         }))
       );
       const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.domain);
@@ -513,7 +533,8 @@ export class DnsResolver {
     if (target === '.' || target === '') {
       return false;
     }
-    return !(await this.targetResolves(this.normalizeDomain(target)));
+    const status = await this.targetResolves(this.normalizeDomain(target));
+    return status === 'not_found';
   }
 
   /**
@@ -621,7 +642,8 @@ export class DnsResolver {
    * Check if a CNAME target appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isCnameDangling(cname: string): Promise<boolean> {
-    return !(await this.targetResolves(cname));
+    const status = await this.targetResolves(cname);
+    return status === 'not_found';
   }
 }
 

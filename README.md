@@ -53,9 +53,6 @@ subvet scan --stdin < subdomains.txt
 |--------|-------------|---------|
 | `-f, --file <path>` | Read subdomains from file | - |
 | `--stdin` | Read from stdin | false |
-
-> **Input sources are mutually exclusive.** Specify only one of: target argument, `--file`, or `--stdin`. Combining multiple sources will result in an error.
-> **Duplicate subdomains** in the input are automatically removed (case-insensitive, order preserved).
 | `-t, --timeout <ms>` | Request timeout | 10000 |
 | `-c, --concurrency <n>` | Parallel requests | 10 |
 | `--no-http` | Skip HTTP probing | false |
@@ -72,6 +69,10 @@ subvet scan --stdin < subdomains.txt
 | `--summary` | Summary only | false |
 | `--pretty` | Pretty print JSON | false |
 | `-v, --verbose` | Show progress | false |
+
+> **Input sources are mutually exclusive.** Specify only one of: target argument, `--file`, or `--stdin`. Combining multiple sources will result in an error.
+
+> **Duplicate subdomains** in the input are automatically removed (case-insensitive, order preserved).
 
 > **Output mode priority:** When multiple output flags are given, the highest-priority mode wins: `--diff` > `--report` > `--summary` > JSON (default).
 
@@ -228,6 +229,8 @@ subvet scan -f subdomains.txt --diff baseline.json
 | `check-txt` | Check TXT record references | `false` |
 | `report` | Report format (html, md, sarif) | - |
 | `diff-json` | Output diff as JSON | `false` |
+
+> **Note:** When `baseline` is specified, the file must exist. The action will fail with an error if the baseline file is not found.
 
 #### Action Outputs
 

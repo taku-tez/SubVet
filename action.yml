@@ -143,6 +143,12 @@ runs:
           cmd+=(--check-txt)
         fi
         
+        # Validate baseline file if specified
+        if [ -n "$INPUT_BASELINE" ] && [ ! -f "$INPUT_BASELINE" ]; then
+          echo "::error::Baseline file '$INPUT_BASELINE' not found. When baseline is specified, the file must exist."
+          exit 1
+        fi
+        
         # Add diff mode if baseline exists
         if [ -n "$INPUT_BASELINE" ] && [ -f "$INPUT_BASELINE" ]; then
           cmd+=(--diff "$INPUT_BASELINE")
