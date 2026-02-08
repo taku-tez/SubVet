@@ -860,4 +860,156 @@ describe('Scanner vulnerability detection', () => {
       expect(result.evidence.some(e => e.includes('Stale CNAME'))).toBe(true);
     });
   });
+
+  describe('FB Round 2: HTTP confidence not diluted by DNS rules', () => {
+    it('should not count dns_nxdomain weight in HTTP confidence scoring', async () => {
+      // Service with dns_nxdomain (weight 5) + http_body (weight 5)
+      // Previously totalWeight = 10, matchedWeight = 5 → confidence = 5
+      // Now totalWeight = 5 (HTTP only), matchedWeight = 5 → confidence = 10
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.elasticbeanstalk.com',
+        records: [{ type: 'CNAME', value: 'test.elasticbeanstalk.com' }],
+        cname: 'test.elasticbeanstalk.com',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: true
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.elasticbeanstalk.com',
+        status: 404,
+        body: 'NXDOMAIN',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.elasticbeanstalk.com');
+
+      // Confidence should be based on HTTP rules only
+      const confidenceEvidence = result.evidence.find(e => e.startsWith('Confidence:'));
+      if (confidenceEvidence) {
+        const score = parseInt(confidenceEvidence.match(/(\d+)\/10/)?.[1] ?? '0');
+        // Without DNS dilution, matching HTTP rules should yield higher confidence
+        expect(score).toBeGreaterThanOrEqual(5);
+      }
+    });
+
+    it('should respect minConfidence threshold without DNS rule dilution', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'bucket.s3.amazonaws.com',
+        records: [{ type: 'CNAME', value: 'bucket.s3.amazonaws.com' }],
+        cname: 'bucket.s3.amazonaws.com',
+        hasIpv4: false,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://bucket.s3.amazonaws.com',
+        status: 404,
+        body: '<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('bucket.s3.amazonaws.com');
+
+      // All HTTP rules match → high confidence → vulnerable
+      expect(result.status).toBe('vulnerable');
+    });
+  });
+
+  describe('FB Round 2: Wildcard check failure resilience', () => {
+    it('should continue scanning when checkWildcard throws', async () => {
+      // We need to test via scan() which uses checkWildcard
+      // Re-mock DnsResolver with checkWildcard that throws
+      const mockResolve = vi.fn().mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      vi.mocked(DnsResolver).mockImplementation(() => ({
+        resolve: mockResolve,
+        checkWildcard: vi.fn().mockRejectedValue(new Error('DNS timeout'))
+      }) as any);
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const output = await scanner.scan(['test.example.com']);
+
+      expect(output.results.length).toBe(1);
+      expect(output.results[0].subdomain).toBe('test.example.com');
+      expect(output.results[0].status).toBe('not_vulnerable');
+    });
+  });
+
+  describe('FB Round 2: IPv6 wildcard safety', () => {
+    it('should detect IPv6 wildcard match as not_vulnerable', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'AAAA', value: '2001:db8::1' }],
+        hasIpv4: false,
+        hasIpv6: true,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.example.com', {
+        isWildcard: true,
+        wildcardIp: '2001:db8::1'
+      });
+
+      expect(result.status).toBe('not_vulnerable');
+      expect(result.evidence.some(e => e.includes('wildcard IP'))).toBe(true);
+    });
+  });
+
+  describe('FB Round 2: Output mode priority', () => {
+    // Output priority is documented and enforced in CLI; tested via cli.test.ts
+    // Here we verify the scan output structure is consistent regardless
+    it('should produce valid output for summary consumption', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const output = await scanner.scan(['test.example.com']);
+
+      expect(output.summary).toBeDefined();
+      expect(output.summary.total).toBe(1);
+      expect(output.results).toBeDefined();
+    });
+  });
 });

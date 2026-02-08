@@ -269,14 +269,16 @@ export class Scanner {
 
       // If subdomain resolves to the same IP as wildcard and has no CNAME, it's likely just wildcard
       const aRecords = result.dns.records.filter(r => r.type === 'A').map(r => r.value);
+      const aaaaRecords = result.dns.records.filter(r => r.type === 'AAAA').map(r => r.value);
+      const allIpRecords = [...aRecords, ...aaaaRecords];
       const hasCname = result.dns.records.some(r => r.type === 'CNAME');
 
-      if (wildcardInfo.wildcardIp && aRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
-        // Same IP as wildcard, no CNAME → almost certainly just wildcard response
+      if (wildcardInfo.wildcardIp && allIpRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
+        // Same IP (v4 or v6) as wildcard, no CNAME → almost certainly just wildcard response
         result.status = 'not_vulnerable';
         result.risk = 'info';
         result.evidence.push(`Resolves to wildcard IP ${wildcardInfo.wildcardIp} — safe`);
-      } else if (!hasCname && aRecords.length > 0) {
+      } else if (!hasCname && allIpRecords.length > 0) {
         // Has A record but no CNAME in wildcard domain → reduce confidence
         // Downgrade risk by adjusting confidence evidence
         result.evidence.push('No CNAME in wildcard domain — confidence reduced');
@@ -310,8 +312,18 @@ export class Scanner {
     let matchedWeight = 0;
     const requiredRules: { rule: FingerprintRule; matched: boolean }[] = [];
 
+    // Only evaluate HTTP-phase rules for totalWeight/requiredRules calculation.
+    // DNS rules (dns_nxdomain, dns_cname, etc.) are evaluated in checkDnsFingerprints()
+    // and should not dilute the HTTP confidence score.
+    const httpRuleTypes = new Set(['http_body', 'http_status', 'http_header']);
+
     // Check positive patterns
     for (const rule of service.fingerprints) {
+      // Skip non-HTTP rules — they don't belong in HTTP confidence scoring
+      if (!httpRuleTypes.has(rule.type)) {
+        continue;
+      }
+
       const weight = rule.weight ?? 5;
       totalWeight += weight;
       let matched = false;
@@ -356,9 +368,6 @@ export class Scanner {
           }
           break;
 
-        case 'dns_nxdomain':
-          // Handled in DNS phase
-          break;
       }
 
       if (rule.required) {
@@ -675,8 +684,16 @@ export class Scanner {
     }
     await Promise.all(
       [...baseDomains].map(async (base) => {
-        const result = await this.dnsResolver.checkWildcard(base);
-        wildcardCache.set(base, result);
+        try {
+          const result = await this.dnsResolver.checkWildcard(base);
+          wildcardCache.set(base, result);
+        } catch (err) {
+          // Wildcard check failure should not abort the entire scan
+          wildcardCache.set(base, { isWildcard: false });
+          if (this.options.verbose) {
+            process.stderr.write(`\nWarning: wildcard check failed for ${base}: ${(err as Error).message}\n`);
+          }
+        }
       })
     );
 

@@ -30,7 +30,7 @@ inputs:
   slack-on:
     description: 'When to notify: always, issues, new'
     required: false
-    default: 'new'
+    default: 'issues'
   check-ns:
     description: 'Check NS delegation'
     required: false

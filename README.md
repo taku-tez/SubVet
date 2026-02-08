@@ -70,6 +70,8 @@ subvet scan --stdin < subdomains.txt
 | `--pretty` | Pretty print JSON | false |
 | `-v, --verbose` | Show progress | false |
 
+> **Output mode priority:** When multiple output flags are given, the highest-priority mode wins: `--diff` > `--report` > `--summary` > JSON (default).
+
 ### check
 
 Human-readable single subdomain check.
@@ -213,7 +215,7 @@ subvet scan -f subdomains.txt --diff baseline.json
 | `subdomains` | Path to subdomains file | `subdomains.txt` |
 | `baseline` | Baseline JSON for diff mode | - |
 | `slack-webhook` | Slack webhook URL | - |
-| `slack-on` | Notify condition: always/issues/new | `new` |
+| `slack-on` | Notify condition: always/issues/new | `issues` |
 | `check-ns` | Check NS delegation | `true` |
 | `check-mx` | Check MX records | `true` |
 | `check-spf` | Check SPF includes | `false` |

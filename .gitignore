@@ -29,3 +29,5 @@ coverage/
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+.github/workflows/ci.yml
+.github/workflows/docker.yml

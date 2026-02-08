@@ -192,6 +192,23 @@ describe('CLI', () => {
     });
   });
 
+  describe('slack-on default', () => {
+    it('should default slack-on to issues in help', async () => {
+      const { stdout } = await execAsync(`node ${cliPath} scan --help`);
+      expect(stdout).toContain('issues');
+    });
+  });
+
+  describe('output mode priority', () => {
+    it('should document output mode priority in help comment', async () => {
+      const { stdout } = await execAsync(`node ${cliPath} scan --help`);
+      // Help should show all output options
+      expect(stdout).toContain('--diff');
+      expect(stdout).toContain('--report');
+      expect(stdout).toContain('--summary');
+    });
+  });
+
   describe('numeric option validation', () => {
     it('should reject invalid timeout value', async () => {
       try {

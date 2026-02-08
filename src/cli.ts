@@ -53,6 +53,8 @@ program
   .option('--diff-json', 'Output diff as JSON (with --diff)')
   .option('--slack-webhook <url>', 'Send results to Slack webhook')
   .option('--slack-on <condition>', 'When to notify: always, issues, new (default: issues)', 'issues')
+  // Output mode priority: --diff > --report > --summary > JSON (default).
+  // When multiple are specified, the highest-priority mode wins.
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
