@@ -104,6 +104,36 @@ describe('findServiceByCname', () => {
     expect(result?.service).toBe('Marketo');
   });
 
+  it('should find Short.io by CNAME', () => {
+    const result = findServiceByCname('links.short.io');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Short.io');
+  });
+
+  it('should find Azure by additional CNAME patterns', () => {
+    expect(findServiceByCname('test.azurecr.io')?.service).toBe('Azure');
+    expect(findServiceByCname('test.azurehdinsight.net')?.service).toBe('Azure');
+    expect(findServiceByCname('test.servicebus.windows.net')?.service).toBe('Azure');
+  });
+
+  it('should find Acquia by CNAME', () => {
+    const result = findServiceByCname('site.acquia-sites.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Acquia');
+  });
+
+  it('should find Frontify by CNAME', () => {
+    const result = findServiceByCname('brand.frontify.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Frontify');
+  });
+
+  it('should find Mashery by CNAME', () => {
+    const result = findServiceByCname('api.mashery.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Mashery');
+  });
+
   it('should find Shopify by CNAME', () => {
     const result = findServiceByCname('shop.myshopify.com');
     expect(result).not.toBeNull();

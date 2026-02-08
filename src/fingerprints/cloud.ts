@@ -77,7 +77,15 @@ export const cloudFingerprints: ServiceFingerprint[] = [
       '*.azureedge.net',
       '*.azurefd.net',
       '*.blob.core.windows.net',
-      '*.trafficmanager.net'
+      '*.trafficmanager.net',
+      '*.azurehdinsight.net',
+      '*.database.windows.net',
+      '*.azuredatalakestore.net',
+      '*.search.windows.net',
+      '*.azurecr.io',
+      '*.redis.cache.windows.net',
+      '*.servicebus.windows.net',
+      '*.visualstudio.com'
     ],
     fingerprints: [
       { type: 'http_body', pattern: 'Error 404 - Web app not found', weight: 10, required: true },
