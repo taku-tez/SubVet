@@ -10,6 +10,7 @@ import type { DnsResult } from './types.js';
 export interface WildcardResult {
   isWildcard: boolean;
   wildcardIp?: string;
+  wildcardIps?: string[];
 }
 
 const resolveCname = promisify(dns.resolveCname);
@@ -520,28 +521,58 @@ export class DnsResolver {
 
   /**
    * Check if a domain has wildcard DNS configured.
-   * Resolves a random subdomain; if it returns an A record, wildcard is active.
+   * Performs multiple probes with different random subdomains for accuracy.
+   * A domain is considered wildcard if a majority of probes return responses.
    */
   async checkWildcard(domain: string): Promise<WildcardResult> {
-    const randomLabel = crypto.randomBytes(8).toString('hex'); // e.g. "a1b2c3d4e5f6g7h8"
-    const probe = `${randomLabel}.${domain}`;
+    const probeCount = 3;
+    const probes = Array.from({ length: probeCount }, () => {
+      const randomLabel = crypto.randomBytes(8).toString('hex');
+      return `${randomLabel}.${domain}`;
+    });
 
-    const [v4Result, v6Result] = await Promise.allSettled([
-      this.withTimeout(resolve4(probe)),
-      this.withTimeout(resolve6(probe))
-    ]);
+    // Run all probes in parallel
+    const probeResults = await Promise.allSettled(
+      probes.map(async (probe) => {
+        const [v4Result, v6Result] = await Promise.allSettled([
+          this.withTimeout(resolve4(probe)),
+          this.withTimeout(resolve6(probe))
+        ]);
+        const ips: string[] = [];
+        if (v4Result.status === 'fulfilled' && v4Result.value?.length > 0) {
+          ips.push(...v4Result.value);
+        }
+        if (v6Result.status === 'fulfilled' && v6Result.value?.length > 0) {
+          ips.push(...v6Result.value);
+        }
+        return ips;
+      })
+    );
 
-    // Check A records
-    if (v4Result.status === 'fulfilled' && v4Result.value?.length > 0) {
-      return { isWildcard: true, wildcardIp: v4Result.value[0] };
+    // Collect all IPs and count successful probes
+    const allIps = new Set<string>();
+    let successCount = 0;
+    for (const result of probeResults) {
+      if (result.status === 'fulfilled' && result.value.length > 0) {
+        successCount++;
+        for (const ip of result.value) {
+          allIps.add(ip);
+        }
+      }
     }
 
-    // Check AAAA records (IPv6-only wildcard)
-    if (v6Result.status === 'fulfilled' && v6Result.value?.length > 0) {
-      return { isWildcard: true, wildcardIp: v6Result.value[0] };
+    // Majority of probes must respond to be considered wildcard
+    const majority = Math.ceil(probeCount / 2);
+    if (successCount >= majority) {
+      const wildcardIps = [...allIps];
+      return {
+        isWildcard: true,
+        wildcardIp: wildcardIps[0],
+        wildcardIps
+      };
     }
 
-    return { isWildcard: false };
+    return { isWildcard: false, wildcardIps: [] };
   }
 
   /**

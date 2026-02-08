@@ -980,7 +980,7 @@ describe('Scanner vulnerability detection', () => {
       });
 
       expect(result.status).toBe('not_vulnerable');
-      expect(result.evidence.some(e => e.includes('wildcard IP'))).toBe(true);
+      expect(result.evidence.some(e => e.includes('wildcard'))).toBe(true);
     });
   });
 
@@ -1158,6 +1158,117 @@ describe('Scanner vulnerability detection', () => {
 
       expect(result.status).toBe('vulnerable');
       expect(result.risk).toBe('high');
+    });
+  });
+
+  describe('Wildcard IP set matching', () => {
+    it('should mark as safe when all IPs match wildcardIps set', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }, { type: 'A', value: '5.6.7.8' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4',
+        wildcardIps: ['1.2.3.4', '5.6.7.8', '9.10.11.12']
+      });
+
+      expect(result.status).toBe('not_vulnerable');
+      expect(result.evidence.some(e => e.includes('All IPs match wildcard set'))).toBe(true);
+    });
+
+    it('should reduce confidence on partial wildcard IP match', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }, { type: 'A', value: '99.99.99.99' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4',
+        wildcardIps: ['1.2.3.4', '5.6.7.8']
+      });
+
+      expect(result.evidence.some(e => e.includes('Partial wildcard IP match'))).toBe(true);
+    });
+
+    it('should not adjust when no IPs match wildcard set', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '99.99.99.99' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4',
+        wildcardIps: ['1.2.3.4', '5.6.7.8']
+      });
+
+      // No CNAME, has IP that doesn't match wildcard → confidence reduced (existing behavior)
+      expect(result.evidence.some(e => e.includes('No CNAME in wildcard domain'))).toBe(true);
+    });
+
+    it('should fall back to wildcardIp when wildcardIps not provided', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'test.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://test.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('test.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4'
+      });
+
+      expect(result.status).toBe('not_vulnerable');
     });
   });
 

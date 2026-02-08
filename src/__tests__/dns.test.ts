@@ -195,6 +195,20 @@ describe('DnsResolver wildcard detection', () => {
     expect(typeof result.isWildcard).toBe('boolean');
   });
 
+  it('should return wildcardIps array when wildcard detected', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const result = await resolver.checkWildcard('example.com');
+    
+    // Whether wildcard or not, wildcardIps should be defined
+    if (result.isWildcard) {
+      expect(Array.isArray(result.wildcardIps)).toBe(true);
+      expect(result.wildcardIps!.length).toBeGreaterThan(0);
+      expect(result.wildcardIp).toBe(result.wildcardIps![0]);
+    } else {
+      expect(result.wildcardIps).toEqual([]);
+    }
+  });
+
   it('should detect IPv6-only wildcard via mocked resolve6', async () => {
     const dns = await import('node:dns');
     const { promisify } = await import('node:util');

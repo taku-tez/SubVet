@@ -285,11 +285,28 @@ export class Scanner {
         const allIpRecords = [...aRecords, ...aaaaRecords];
         const hasCname = result.dns.records.some(r => r.type === 'CNAME');
 
-        if (wildcardInfo.wildcardIp && allIpRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
-          // Same IP (v4 or v6) as wildcard, no CNAME → almost certainly just wildcard response
+        const wildcardIps = wildcardInfo.wildcardIps ?? (wildcardInfo.wildcardIp ? [wildcardInfo.wildcardIp] : []);
+        const matchCount = allIpRecords.filter(ip => wildcardIps.includes(ip)).length;
+        const allMatch = allIpRecords.length > 0 && matchCount === allIpRecords.length;
+        const partialMatch = matchCount > 0 && matchCount < allIpRecords.length;
+
+        if (allMatch && !hasCname) {
+          // All IPs match wildcard set, no CNAME → almost certainly just wildcard response
           result.status = 'not_vulnerable';
           result.risk = 'info';
-          result.evidence.push(`Resolves to wildcard IP ${wildcardInfo.wildcardIp} — safe`);
+          result.evidence.push(`All IPs match wildcard set [${wildcardIps.join(', ')}] — safe`);
+        } else if (partialMatch && !hasCname) {
+          // Partial IP match — reduce confidence but keep status
+          result.evidence.push(`Partial wildcard IP match (${matchCount}/${allIpRecords.length}) — confidence reduced`);
+          // Adjust confidence evidence string if present
+          const confIdx = result.evidence.findIndex(e => e.startsWith('Confidence:'));
+          if (confIdx >= 0) {
+            const confMatch = result.evidence[confIdx].match(/Confidence: (\d+)\/10/);
+            if (confMatch) {
+              const reduced = Math.max(0, parseInt(confMatch[1], 10) - 2);
+              result.evidence[confIdx] = `Confidence: ${reduced}/10`;
+            }
+          }
         } else if (!hasCname && allIpRecords.length > 0) {
           // Has A record but no CNAME in wildcard domain → reduce confidence
           // Downgrade risk by adjusting confidence evidence
