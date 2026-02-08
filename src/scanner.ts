@@ -414,6 +414,7 @@ export class Scanner {
       mxDangling?: string[];
       spfDangling?: string[];
       srvDangling?: string[];
+      txtDangling?: string[];
     },
     cname: string | null
   ): string[] {
@@ -460,6 +461,12 @@ export class Scanner {
         case 'srv_nxdomain':
           if (dns.srvDangling && dns.srvDangling.length > 0) {
             matches.push(`DNS: Dangling SRV record (${dns.srvDangling.join(', ')})`);
+          }
+          break;
+
+        case 'txt_ref_nxdomain':
+          if (dns.txtDangling && dns.txtDangling.length > 0) {
+            matches.push(`DNS: Dangling TXT domain reference (${dns.txtDangling.join(', ')})`);
           }
           break;
       }

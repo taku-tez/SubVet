@@ -196,6 +196,72 @@ describe('DnsResolver wildcard detection', () => {
   });
 });
 
+describe('DnsResolver TXT record checks', () => {
+  describe('extractTxtDomainReferences', () => {
+    it('should extract SPF include domains', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('v=spf1 include:spf.example.com include:mail.other.org ~all');
+      expect(refs).toContain('spf.example.com');
+      expect(refs).toContain('mail.other.org');
+    });
+
+    it('should extract SPF redirect domains', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('v=spf1 redirect=spf.example.com');
+      expect(refs).toContain('spf.example.com');
+    });
+
+    it('should extract SPF a: and mx: domains', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('v=spf1 a:mail.example.com mx:mx.example.com ~all');
+      expect(refs).toContain('mail.example.com');
+      expect(refs).toContain('mx.example.com');
+    });
+
+    it('should extract DMARC rua/ruf domains', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('v=DMARC1; p=reject; rua=mailto:dmarc@report.example.com; ruf=mailto:forensic@report.example.com');
+      expect(refs).toContain('report.example.com');
+    });
+
+    it('should NOT extract google-site-verification tokens as domains', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('google-site-verification=abc123def456');
+      expect(refs).toHaveLength(0);
+    });
+
+    it('should NOT extract facebook-domain-verification tokens', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('facebook-domain-verification=abcdef123456');
+      expect(refs).toHaveLength(0);
+    });
+
+    it('should NOT extract MS= tokens', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('MS=ms12345678');
+      expect(refs).toHaveLength(0);
+    });
+
+    it('should return empty for plain text records', () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const refs = resolver.extractTxtDomainReferences('v=DKIM1; k=rsa; p=MIGfMA0GCSqG...');
+      expect(refs).toHaveLength(0);
+    });
+  });
+
+  describe('with TXT check enabled', () => {
+    it('should find TXT references when enabled', async () => {
+      const resolver = new DnsResolver({ timeout: 5000, checkTxt: true });
+      const result = await resolver.resolve('google.com');
+      
+      // google.com has SPF records with includes
+      if (result.txtReferences) {
+        expect(result.txtReferences.length).toBeGreaterThan(0);
+      }
+    });
+  });
+});
+
 describe('DnsResolver advanced', () => {
   describe('with SRV check', () => {
     it('should check SRV records when enabled', async () => {

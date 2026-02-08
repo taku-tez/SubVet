@@ -480,6 +480,13 @@ function printResult(result: ScanResult): void {
     }
   }
 
+  if (result.dns.txtDangling && result.dns.txtDangling.length > 0) {
+    console.log(chalk.yellow(`   📝 Dangling TXT domain reference:`));
+    for (const txt of result.dns.txtDangling) {
+      console.log(chalk.yellow(`     ${txt}`));
+    }
+  }
+
   if (result.http) {
     console.log(`   HTTP: ${result.http.status ?? 'N/A'} (${result.http.responseTime ?? 0}ms)`);
     if (result.http.error) {
