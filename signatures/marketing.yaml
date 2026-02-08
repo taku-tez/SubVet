@@ -1,0 +1,147 @@
+- service: Marketo
+  description: Adobe Marketo Engage (marketing automation)
+  cnames:
+    - "*.mktoedge.com"
+    - "*.mktoweb.com"
+    - mkto-*.com
+  fingerprints:
+    - type: http_body
+      pattern: The content you are looking for does not exist
+      weight: 9
+    - type: http_header
+      pattern: marketo\.com
+      header: location
+      weight: 8
+    - type: http_body
+      pattern: Login | Marketo
+      weight: 7
+    - type: http_body
+      pattern: mktLogin
+      weight: 6
+    - type: http_body
+      pattern: Adobe Marketo Engage
+      weight: 5
+  negativePatterns:
+    - type: http_body
+      pattern: mktoForm
+      description: Active Marketo form detected
+    - type: http_body
+      pattern: MktoForms2
+      description: Active Marketo forms library
+  takeoverPossible: false
+  minConfidence: 5
+  documentation: Stale CNAME to Marketo - service no longer active. Remove DNS record.
+  poc: Remove stale DNS CNAME record pointing to Marketo
+- service: Unbounce
+  description: Unbounce landing pages
+  cnames:
+    - "*.unbouncepages.com"
+  fingerprints:
+    - type: http_body
+      pattern: The requested URL was not found on this server
+      weight: 6
+    - type: http_body
+      pattern: The page you were looking for doesn't exist
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Add custom domain in Unbounce settings
+- service: HubSpot
+  description: HubSpot CMS
+  cnames:
+    - "*.hubspot.net"
+    - "*.hs-sites.com"
+  fingerprints:
+    - type: http_body
+      pattern: Domain not found
+      weight: 10
+    - type: http_status
+      value: 404
+      weight: 2
+  takeoverPossible: false
+  documentation: Requires HubSpot account verification
+- service: Campaign Monitor
+  description: Campaign Monitor landing pages
+  cnames:
+    - "*.createsend.com"
+    - "*.campaignmonitor.com"
+  fingerprints:
+    - type: http_body
+      pattern: Trying to access your account?
+      required: true
+      weight: 10
+  takeoverPossible: true
+  documentation: https://help.campaignmonitor.com/custom-domain-names
+  poc: Create Campaign Monitor page and add custom domain
+- service: GetResponse
+  description: GetResponse landing pages
+  cnames:
+    - "*.getresponse.com"
+    - "*.gr8.com"
+  fingerprints:
+    - type: http_body
+      pattern: With GetResponse Landing Pages, lead generation has never been easier
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Create GetResponse landing page with custom domain
+- service: LaunchRock
+  description: LaunchRock landing pages
+  cnames:
+    - "*.launchrock.com"
+  fingerprints:
+    - type: http_body
+      pattern: It looks like you may have taken a wrong turn somewhere
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Create LaunchRock page with custom domain
+- service: Landingi
+  description: Landingi landing pages
+  cnames:
+    - "*.landingi.com"
+  fingerprints:
+    - type: http_body
+      pattern: It looks like you're lost
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Create landing page with custom domain
+- service: Agile CRM
+  description: Agile CRM landing pages
+  cnames:
+    - "*.agilecrm.com"
+  fingerprints:
+    - type: http_body
+      pattern: Sorry, this page is no longer available
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Create landing page in Agile CRM
+- service: Uberflip
+  description: Uberflip content hub
+  cnames:
+    - "*.read.uberflip.com"
+    - "*.uberflip.com"
+  fingerprints:
+    - type: http_body
+      pattern: The URL you've accessed does not provide a hub
+      required: true
+      weight: 10
+    - type: http_body
+      pattern: does not provide a hub
+      weight: 8
+  takeoverPossible: true
+  documentation: https://help.uberflip.com/hc/en-us/articles/360018786372
+  poc: Create Uberflip hub and configure custom domain
+- service: Smartling
+  description: Smartling translation
+  cnames:
+    - "*.smartling.com"
+  fingerprints:
+    - type: http_body
+      pattern: Domain is not configured
+      required: true
+      weight: 10
+  takeoverPossible: true
+  poc: Contact Smartling support to claim

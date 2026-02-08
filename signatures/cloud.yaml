@@ -1,0 +1,160 @@
+- service: AWS S3
+  description: Amazon S3 bucket
+  cnames:
+    - "*.s3.amazonaws.com"
+    - "*.s3-*.amazonaws.com"
+    - "*.s3.*.amazonaws.com"
+  fingerprints:
+    - type: http_body
+      pattern: NoSuchBucket
+      required: true
+      weight: 10
+    - type: http_body
+      pattern: The specified bucket does not exist
+      weight: 10
+    - type: http_status
+      value: 404
+      weight: 2
+  negativePatterns:
+    - type: http_body
+      pattern: AccessDenied
+      description: Bucket exists but access denied
+    - type: http_status
+      value: 403
+      description: Access denied (bucket exists)
+  takeoverPossible: true
+  documentation: https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
+  poc: Create S3 bucket with the same name in any region
+- service: AWS Elastic Beanstalk
+  description: AWS Elastic Beanstalk environment
+  cnames:
+    - "*.elasticbeanstalk.com"
+  fingerprints:
+    - type: dns_nxdomain
+      weight: 10
+  takeoverPossible: true
+  poc: Create new Elastic Beanstalk environment with same subdomain
+- service: AWS CloudFront
+  description: Amazon CloudFront CDN distribution
+  cnames:
+    - "*.cloudfront.net"
+  fingerprints:
+    - type: http_body
+      pattern: Bad Request
+      weight: 4
+    - type: http_body
+      pattern: The request could not be satisfied
+      weight: 8
+    - type: http_body
+      pattern: "ERROR: The request could not be satisfied"
+      weight: 9
+    - type: http_header
+      pattern: Error from cloudfront
+      header: x-cache
+      required: true
+      weight: 10
+    - type: http_body
+      pattern: CloudFront
+      weight: 5
+    - type: http_status
+      value: 403
+      weight: 2
+  negativePatterns:
+    - type: http_header
+      pattern: Hit from cloudfront
+      header: x-cache
+      description: CDN cache hit
+    - type: http_status
+      value: 200
+      description: Content serving
+  takeoverPossible: true
+  minConfidence: 5
+  documentation: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/CNAMEs.html
+  poc: Create CloudFront distribution and add the CNAME as alternate domain
+- service: AWS Amplify
+  description: AWS Amplify Hosting
+  cnames:
+    - "*.amplifyapp.com"
+  fingerprints:
+    - type: http_body
+      pattern: This page could not be found
+      weight: 8
+    - type: dns_nxdomain
+      weight: 10
+  takeoverPossible: true
+  poc: Create Amplify app and add custom domain
+- service: Azure
+  description: Microsoft Azure web apps
+  cnames:
+    - "*.azurewebsites.net"
+    - "*.cloudapp.azure.com"
+    - "*.cloudapp.net"
+    - "*.azure-api.net"
+    - "*.azurecontainer.io"
+    - "*.azureedge.net"
+    - "*.azurefd.net"
+    - "*.blob.core.windows.net"
+    - "*.trafficmanager.net"
+    - "*.azurehdinsight.net"
+    - "*.database.windows.net"
+    - "*.azuredatalakestore.net"
+    - "*.search.windows.net"
+    - "*.azurecr.io"
+    - "*.redis.cache.windows.net"
+    - "*.servicebus.windows.net"
+    - "*.visualstudio.com"
+  fingerprints:
+    - type: http_body
+      pattern: Error 404 - Web app not found
+      required: true
+      weight: 10
+    - type: http_body
+      pattern: The resource you are looking for has been removed
+      weight: 8
+    - type: dns_nxdomain
+      weight: 8
+  takeoverPossible: true
+  poc: Register the subdomain via Azure Portal
+- service: Google Cloud Storage
+  description: Google Cloud Storage bucket
+  cnames:
+    - "*.storage.googleapis.com"
+  fingerprints:
+    - type: http_body
+      pattern: NoSuchBucket
+      required: true
+      weight: 10
+    - type: http_body
+      pattern: The specified bucket does not exist
+      weight: 10
+    - type: http_status
+      value: 404
+      weight: 2
+  takeoverPossible: true
+  poc: Create GCS bucket with the same name
+- service: Google Cloud Run
+  description: Google Cloud Run services
+  cnames:
+    - "*.run.app"
+    - ghs.googlehosted.com
+  fingerprints:
+    - type: http_status
+      value: 404
+      weight: 3
+    - type: dns_nxdomain
+      weight: 5
+  takeoverPossible: false
+  documentation: Requires domain verification in GCP
+- service: DigitalOcean App Platform
+  description: DigitalOcean App Platform
+  cnames:
+    - "*.ondigitalocean.app"
+  fingerprints:
+    - type: http_body
+      pattern: App not found
+      required: true
+      weight: 10
+    - type: dns_nxdomain
+      weight: 8
+  takeoverPossible: true
+  poc: Create DigitalOcean app and configure domain

@@ -9,7 +9,8 @@ import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { Scanner } from './scanner.js';
-import { getAllFingerprints } from './fingerprints/index.js';
+import { getAllFingerprints, setCustomSignaturesDir } from './fingerprints/index.js';
+import { getBuiltinSignaturesDir } from './signatures.js';
 import { generateReport, type ReportFormat } from './report.js';
 import { compareScans, formatDiffText, getDiffExitCode } from './diff.js';
 import { sendSlackWebhook, formatScanMessage, formatDiffMessage } from './slack.js';
@@ -23,6 +24,10 @@ program
   .name('subvet')
   .description('Subdomain takeover vulnerability scanner')
   .version(VERSION);
+
+// Global option for custom signatures
+program
+  .option('--custom-signatures <dir>', 'Load additional signatures from a custom directory');
 
 // === scan command ===
 program
@@ -507,6 +512,58 @@ function printResult(result: ScanResult): void {
 
   console.log();
 }
+
+// === signatures command ===
+const sigCmd = program
+  .command('signatures')
+  .description('Manage signature files');
+
+sigCmd
+  .command('list')
+  .description('List all loaded signatures')
+  .option('--json', 'Output as JSON')
+  .action((options) => {
+    // Apply custom signatures from parent
+    const parentOpts = program.opts();
+    if (parentOpts.customSignatures) {
+      setCustomSignaturesDir(parentOpts.customSignatures);
+    }
+
+    const sigs = getAllFingerprints();
+
+    if (options.json) {
+      console.log(JSON.stringify(sigs.map(s => ({
+        service: s.service,
+        cnames: s.cnames,
+        takeoverPossible: s.takeoverPossible,
+        fingerprintCount: s.fingerprints.length,
+      })), null, 2));
+      return;
+    }
+
+    console.log(chalk.cyan(`\nLoaded Signatures: ${sigs.length}\n`));
+
+    const builtinDir = getBuiltinSignaturesDir();
+    console.log(chalk.gray(`Built-in: ${builtinDir}`));
+    if (parentOpts.customSignatures) {
+      console.log(chalk.gray(`Custom: ${parentOpts.customSignatures}`));
+    }
+    console.log();
+
+    for (const sig of sigs) {
+      const icon = sig.takeoverPossible ? chalk.red('●') : chalk.green('●');
+      console.log(`  ${icon} ${sig.service} ${chalk.gray(`(${sig.cnames.join(', ')})`)} ${chalk.gray(`[${sig.fingerprints.length} rules]`)}`);
+    }
+    console.log();
+  });
+
+// Apply custom signatures before any action
+program.hook('preAction', () => {
+  const opts = program.opts();
+  if (opts.customSignatures) {
+    setCustomSignaturesDir(opts.customSignatures);
+  }
+});
 
 // Run CLI
 program.parse();
