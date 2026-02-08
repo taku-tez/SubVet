@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DnsResolver, quickDnsCheck } from '../dns.js';
+import { DnsResolver, quickDnsCheck, type WildcardResult } from '../dns.js';
 
 describe('DnsResolver', () => {
   describe('resolve', () => {
@@ -158,6 +158,41 @@ describe('DnsResolver dangling checks', () => {
       const result = await resolver.isCnameDangling('nonexistent-domain-test-12345.com');
       expect(result).toBe(true);
     });
+  });
+});
+
+describe('DnsResolver wildcard detection', () => {
+  it('should detect non-wildcard domain', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const result = await resolver.checkWildcard('google.com');
+    
+    expect(result.isWildcard).toBe(false);
+    expect(result.wildcardIp).toBeUndefined();
+  });
+
+  it('should return WildcardResult shape', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const result = await resolver.checkWildcard('example.com');
+    
+    expect(typeof result.isWildcard).toBe('boolean');
+    if (result.isWildcard) {
+      expect(typeof result.wildcardIp).toBe('string');
+    }
+  });
+
+  it('should handle non-existent base domain gracefully', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const result = await resolver.checkWildcard('nonexistent-domain-test-12345.com');
+    
+    expect(result.isWildcard).toBe(false);
+  });
+
+  it('should handle timeout gracefully', async () => {
+    const resolver = new DnsResolver({ timeout: 1 });
+    const result = await resolver.checkWildcard('google.com');
+    
+    // Should not throw, just return not-wildcard
+    expect(typeof result.isWildcard).toBe('boolean');
   });
 });
 

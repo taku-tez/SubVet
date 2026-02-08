@@ -18,7 +18,8 @@ export type FingerprintMatchType =
   | 'ns_nxdomain'     // NS delegation target NXDOMAIN
   | 'mx_nxdomain'     // MX record target NXDOMAIN
   | 'spf_include_nxdomain'  // SPF include target NXDOMAIN
-  | 'srv_nxdomain';         // SRV record target NXDOMAIN
+  | 'srv_nxdomain'          // SRV record target NXDOMAIN
+  | 'txt_ref_nxdomain';     // TXT record domain reference NXDOMAIN
 
 export interface FingerprintRule {
   type: FingerprintMatchType;
@@ -68,6 +69,8 @@ export interface DnsResult {
   spfDangling?: string[];      // SPF include targets that don't resolve
   srvRecords?: string[];       // SRV record targets
   srvDangling?: string[];      // SRV targets that don't resolve
+  txtReferences?: string[];    // Domain references found in TXT records
+  txtDangling?: string[];      // TXT domain references that don't resolve
   hasIpv4: boolean;            // Has A records
   hasIpv6: boolean;            // Has AAAA records
   resolved: boolean;
@@ -123,6 +126,7 @@ export interface ScanOptions {
   mxCheck: boolean;           // Check MX records
   spfCheck: boolean;          // Check SPF includes
   srvCheck: boolean;          // Check SRV records
+  txtCheck: boolean;          // Check TXT record domain references
   verbose: boolean;
   output?: string;
 }

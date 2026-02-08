@@ -10,7 +10,7 @@ import type {
   FingerprintRule,
   ServiceFingerprint
 } from './types.js';
-import { DnsResolver } from './dns.js';
+import { DnsResolver, type WildcardResult } from './dns.js';
 import { HttpProber } from './http.js';
 import { findServiceByCname, fingerprints } from './fingerprints/index.js';
 import { escapeRegex } from './utils.js';
@@ -30,6 +30,7 @@ export class Scanner {
       mxCheck: options.mxCheck ?? false,
       spfCheck: options.spfCheck ?? false,
       srvCheck: options.srvCheck ?? false,
+      txtCheck: options.txtCheck ?? false,
       verbose: options.verbose ?? false,
       output: options.output
     };
@@ -39,15 +40,16 @@ export class Scanner {
       checkNs: this.options.nsCheck,
       checkMx: this.options.mxCheck,
       checkSpf: this.options.spfCheck,
-      checkSrv: this.options.srvCheck
+      checkSrv: this.options.srvCheck,
+      checkTxt: this.options.txtCheck
     });
     this.httpProber = new HttpProber({ timeout: this.options.timeout });
   }
 
   /**
-   * Scan a single subdomain
+   * Scan a single subdomain, optionally with pre-computed wildcard info
    */
-  async scanOne(subdomain: string): Promise<ScanResult> {
+  async scanOne(subdomain: string, wildcardInfo?: WildcardResult): Promise<ScanResult> {
     const result: ScanResult = {
       subdomain,
       status: 'unknown',
@@ -227,6 +229,17 @@ export class Scanner {
       }
     }
 
+    // Step 5e: Check for dangling TXT domain references
+    if (result.dns.txtDangling && result.dns.txtDangling.length > 0) {
+      result.evidence.push(`Dangling TXT domain reference: ${result.dns.txtDangling.join(', ')}`);
+      if (result.status !== 'vulnerable') {
+        result.status = 'potential';
+        result.risk = 'medium';
+        result.service = result.service ?? 'TXT Record';
+        result.poc = 'Register the dangling domain referenced in TXT records to potentially bypass SPF or claim verification';
+      }
+    }
+
     // Step 6: Finalize status
     if (result.status === 'unknown') {
       if (result.dns.resolved) {
@@ -234,6 +247,35 @@ export class Scanner {
         result.risk = 'info';
       } else if (result.dns.error) {
         result.evidence.push(`DNS error: ${result.dns.error}`);
+      }
+    }
+
+    // Step 7: Wildcard DNS adjustment
+    if (wildcardInfo?.isWildcard) {
+      result.evidence.push('Wildcard DNS detected');
+
+      // If subdomain resolves to the same IP as wildcard and has no CNAME, it's likely just wildcard
+      const aRecords = result.dns.records.filter(r => r.type === 'A').map(r => r.value);
+      const hasCname = result.dns.records.some(r => r.type === 'CNAME');
+
+      if (wildcardInfo.wildcardIp && aRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
+        // Same IP as wildcard, no CNAME → almost certainly just wildcard response
+        result.status = 'not_vulnerable';
+        result.risk = 'info';
+        result.evidence.push(`Resolves to wildcard IP ${wildcardInfo.wildcardIp} — safe`);
+      } else if (!hasCname && aRecords.length > 0) {
+        // Has A record but no CNAME in wildcard domain → reduce confidence
+        // Downgrade risk by adjusting confidence evidence
+        result.evidence.push('No CNAME in wildcard domain — confidence reduced');
+        if (result.risk === 'critical') {
+          result.risk = 'high';
+          result.status = 'likely';
+        } else if (result.risk === 'high') {
+          result.risk = 'medium';
+          result.status = 'potential';
+        } else if (result.risk === 'medium') {
+          result.risk = 'low';
+        }
       }
     }
 
@@ -604,11 +646,33 @@ export class Scanner {
     const results: ScanResult[] = [];
     const batchSize = this.options.concurrency;
 
+    // Pre-scan: check wildcard DNS for each unique base domain
+    const wildcardCache = new Map<string, WildcardResult>();
+    const baseDomains = new Set<string>();
+    for (const sub of subdomains) {
+      const parts = sub.split('.');
+      // Extract base domain (last 2 parts, e.g. example.com)
+      if (parts.length >= 2) {
+        const base = parts.slice(-2).join('.');
+        baseDomains.add(base);
+      }
+    }
+    await Promise.all(
+      [...baseDomains].map(async (base) => {
+        const result = await this.dnsResolver.checkWildcard(base);
+        wildcardCache.set(base, result);
+      })
+    );
+
     // Process in batches
     for (let i = 0; i < subdomains.length; i += batchSize) {
       const batch = subdomains.slice(i, i + batchSize);
       const batchResults = await Promise.all(
-        batch.map(subdomain => this.scanOne(subdomain))
+        batch.map(subdomain => {
+          const parts = subdomain.split('.');
+          const base = parts.length >= 2 ? parts.slice(-2).join('.') : subdomain;
+          return this.scanOne(subdomain, wildcardCache.get(base));
+        })
       );
       results.push(...batchResults);
 

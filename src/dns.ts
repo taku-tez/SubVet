@@ -4,7 +4,13 @@
 
 import dns from 'node:dns';
 import { promisify } from 'node:util';
+import crypto from 'node:crypto';
 import type { DnsResult } from './types.js';
+
+export interface WildcardResult {
+  isWildcard: boolean;
+  wildcardIp?: string;
+}
 
 const resolveCname = promisify(dns.resolveCname);
 const resolve4 = promisify(dns.resolve4);
@@ -20,6 +26,7 @@ export interface DnsResolverOptions {
   checkMx?: boolean;
   checkSpf?: boolean;
   checkSrv?: boolean;
+  checkTxt?: boolean;
 }
 
 export class DnsResolver {
@@ -28,6 +35,7 @@ export class DnsResolver {
   private checkMx: boolean;
   private checkSpf: boolean;
   private checkSrv: boolean;
+  private checkTxt: boolean;
 
   constructor(options: DnsResolverOptions = {}) {
     this.timeout = options.timeout ?? 5000;
@@ -35,6 +43,7 @@ export class DnsResolver {
     this.checkMx = options.checkMx ?? false;
     this.checkSpf = options.checkSpf ?? false;
     this.checkSrv = options.checkSrv ?? false;
+    this.checkTxt = options.checkTxt ?? false;
   }
 
   /**
@@ -171,6 +180,7 @@ export class DnsResolver {
     if (this.checkMx) checks.push(this.checkMxRecords(subdomain, result));
     if (this.checkSpf) checks.push(this.checkSpfRecords(subdomain, result));
     if (this.checkSrv) checks.push(this.checkSrvRecords(subdomain, result));
+    if (this.checkTxt) checks.push(this.checkTxtRecords(subdomain, result));
     
     if (checks.length > 0) {
       await Promise.all(checks);
@@ -395,6 +405,92 @@ export class DnsResolver {
   }
 
   /**
+   * Check TXT records for dangling domain references
+   */
+  private async checkTxtRecords(subdomain: string, result: DnsResult): Promise<void> {
+    try {
+      const txtRecords = await this.withTimeout(resolveTxt(subdomain));
+      if (!txtRecords || txtRecords.length === 0) return;
+
+      const referencedDomains = new Set<string>();
+
+      for (const record of txtRecords) {
+        const joined = record.join('');
+        const domains = this.extractTxtDomainReferences(joined);
+        for (const d of domains) {
+          referencedDomains.add(d);
+        }
+      }
+
+      if (referencedDomains.size === 0) return;
+
+      result.txtReferences = [...referencedDomains];
+
+      // Check if referenced domains resolve
+      const danglingChecks = await Promise.all(
+        [...referencedDomains].map(async (domain) => ({
+          domain,
+          isDangling: !(await this.targetResolves(domain))
+        }))
+      );
+      const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.domain);
+
+      if (dangling.length > 0) {
+        result.txtDangling = dangling;
+      }
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code !== 'ENODATA' && error.code !== 'ENOTFOUND') {
+        // Other errors we might want to log but not fail
+      }
+    }
+  }
+
+  /**
+   * Extract domain references from a TXT record value.
+   * Extracts SPF include/redirect domains, DKIM references, etc.
+   * Skips verification tokens (google-site-verification, etc.)
+   */
+  extractTxtDomainReferences(txt: string): string[] {
+    const domains: string[] = [];
+
+    // SPF include:domain and redirect=domain
+    const spfIncludes = txt.match(/(?:include:|redirect=)([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/g);
+    if (spfIncludes) {
+      for (const match of spfIncludes) {
+        const domain = match.replace(/^(?:include:|redirect=)/, '');
+        domains.push(this.normalizeDomain(domain));
+      }
+    }
+
+    // SPF a: and mx: with explicit domains
+    const spfAMx = txt.match(/(?:^|\s)[+~?-]?(?:a|mx):([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/g);
+    if (spfAMx) {
+      for (const match of spfAMx) {
+        const domain = match.replace(/^[\s+~?-]?(?:a|mx):/, '');
+        domains.push(this.normalizeDomain(domain));
+      }
+    }
+
+    // Skip known non-domain verification tokens
+    // google-site-verification, facebook-domain-verification, MS=..., etc.
+    // These are tokens, not domain references
+
+    // _dmarc: rua/ruf mailto domains
+    const dmarcDomains = txt.match(/(?:rua|ruf)=mailto:[^@]+@([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/g);
+    if (dmarcDomains) {
+      for (const match of dmarcDomains) {
+        const emailPart = match.match(/@([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})$/);
+        if (emailPart) {
+          domains.push(this.normalizeDomain(emailPart[1]));
+        }
+      }
+    }
+
+    return domains;
+  }
+
+  /**
    * Check if an SRV target is dangling (doesn't resolve via A or AAAA)
    */
   async isSrvTargetDangling(target: string): Promise<boolean> {
@@ -403,6 +499,24 @@ export class DnsResolver {
       return false;
     }
     return !(await this.targetResolves(this.normalizeDomain(target)));
+  }
+
+  /**
+   * Check if a domain has wildcard DNS configured.
+   * Resolves a random subdomain; if it returns an A record, wildcard is active.
+   */
+  async checkWildcard(domain: string): Promise<WildcardResult> {
+    const randomLabel = crypto.randomBytes(8).toString('hex'); // e.g. "a1b2c3d4e5f6g7h8"
+    const probe = `${randomLabel}.${domain}`;
+    try {
+      const ips = await this.withTimeout(resolve4(probe));
+      if (ips && ips.length > 0) {
+        return { isWildcard: true, wildcardIp: ips[0] };
+      }
+    } catch {
+      // NXDOMAIN / ENOTFOUND / timeout → no wildcard
+    }
+    return { isWildcard: false };
   }
 
   /**

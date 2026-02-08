@@ -38,6 +38,7 @@ program
   .option('--check-mx', 'Check for dangling MX records')
   .option('--check-spf', 'Check for dangling SPF includes')
   .option('--check-srv', 'Check for dangling SRV records')
+  .option('--check-txt', 'Check for dangling TXT domain references')
   .option('-v, --verbose', 'Show progress')
   .option('-o, --output <file>', 'Write JSON output to file')
   .option('--pretty', 'Pretty print JSON output')
@@ -108,6 +109,7 @@ program
         mxCheck: options.checkMx ?? false,
         spfCheck: options.checkSpf ?? false,
         srvCheck: options.checkSrv ?? false,
+        txtCheck: options.checkTxt ?? false,
         verbose: options.verbose
       });
 
@@ -244,6 +246,7 @@ program
   .option('--check-mx', 'Check for dangling MX records')
   .option('--check-spf', 'Check for dangling SPF includes')
   .option('--check-srv', 'Check for dangling SRV records')
+  .option('--check-txt', 'Check for dangling TXT domain references')
   .option('--json', 'Output as JSON')
   .action(async (subdomain, options) => {
     try {
@@ -266,7 +269,8 @@ program
         nsCheck: options.checkNs ?? false,
         mxCheck: options.checkMx ?? false,
         spfCheck: options.checkSpf ?? false,
-        srvCheck: options.checkSrv ?? false
+        srvCheck: options.checkSrv ?? false,
+        txtCheck: options.checkTxt ?? false
       });
 
       const output = await scanner.scan([subdomain]);
