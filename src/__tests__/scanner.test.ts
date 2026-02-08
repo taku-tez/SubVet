@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { Scanner, quickScan, listServices } from '../scanner.js';
+import { Scanner, quickScan, listServices, getRegistrableDomain } from '../scanner.js';
 
 describe('Scanner', () => {
   describe('constructor', () => {
@@ -239,6 +239,29 @@ describe('quickScan', () => {
     const output = await quickScan(['google.com', 'github.com'], { timeout: 10000 });
     
     expect(output.results.length).toBe(2);
+  });
+});
+
+describe('getRegistrableDomain', () => {
+  it('should extract registrable domain for simple TLDs', () => {
+    expect(getRegistrableDomain('sub.example.com')).toBe('example.com');
+    expect(getRegistrableDomain('a.b.example.com')).toBe('example.com');
+  });
+
+  it('should handle multi-part TLDs like co.uk', () => {
+    expect(getRegistrableDomain('sub.example.co.uk')).toBe('example.co.uk');
+  });
+
+  it('should handle com.au', () => {
+    expect(getRegistrableDomain('sub.example.com.au')).toBe('example.com.au');
+  });
+
+  it('should handle bare registrable domain', () => {
+    expect(getRegistrableDomain('example.com')).toBe('example.com');
+  });
+
+  it('should handle co.jp', () => {
+    expect(getRegistrableDomain('www.example.co.jp')).toBe('example.co.jp');
   });
 });
 

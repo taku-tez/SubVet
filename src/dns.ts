@@ -508,14 +508,22 @@ export class DnsResolver {
   async checkWildcard(domain: string): Promise<WildcardResult> {
     const randomLabel = crypto.randomBytes(8).toString('hex'); // e.g. "a1b2c3d4e5f6g7h8"
     const probe = `${randomLabel}.${domain}`;
-    try {
-      const ips = await this.withTimeout(resolve4(probe));
-      if (ips && ips.length > 0) {
-        return { isWildcard: true, wildcardIp: ips[0] };
-      }
-    } catch {
-      // NXDOMAIN / ENOTFOUND / timeout → no wildcard
+
+    const [v4Result, v6Result] = await Promise.allSettled([
+      this.withTimeout(resolve4(probe)),
+      this.withTimeout(resolve6(probe))
+    ]);
+
+    // Check A records
+    if (v4Result.status === 'fulfilled' && v4Result.value?.length > 0) {
+      return { isWildcard: true, wildcardIp: v4Result.value[0] };
     }
+
+    // Check AAAA records (IPv6-only wildcard)
+    if (v6Result.status === 'fulfilled' && v6Result.value?.length > 0) {
+      return { isWildcard: true, wildcardIp: v6Result.value[0] };
+    }
+
     return { isWildcard: false };
   }
 

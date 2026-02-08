@@ -59,6 +59,19 @@ describe('HttpProber', () => {
       expect(result).toBeDefined();
     });
 
+    it('should clear timeout timer even on fetch failure', async () => {
+      const prober = new HttpProber({ timeout: 5000 });
+      // Spy on global clearTimeout to verify it's called
+      const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+      const callCountBefore = clearTimeoutSpy.mock.calls.length;
+
+      await prober.probeUrl('http://nonexistent-domain-xyz-12345.invalid');
+
+      // clearTimeout should have been called at least once more (in finally block)
+      expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThan(callCountBefore);
+      clearTimeoutSpy.mockRestore();
+    });
+
     it('should handle 404 responses', async () => {
       const prober = new HttpProber({ timeout: 10000 });
       // GitHub returns 404 for nonexistent pages

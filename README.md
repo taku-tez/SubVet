@@ -60,7 +60,8 @@ subvet scan --stdin < subdomains.txt
 | `--check-mx` | Check MX records | false |
 | `--check-spf` | Check SPF includes | false |
 | `--check-srv` | Check SRV records | false |
-| `--report <format>` | Output format (json/md/html) | json |
+| `--check-txt` | Check TXT record references | false |
+| `--report <format>` | Output format (json/md/html/sarif) | json |
 | `--diff <baseline>` | Compare against baseline JSON | - |
 | `--diff-json` | Output diff as JSON | false |
 | `--slack-webhook <url>` | Send results to Slack | - |
@@ -155,6 +156,20 @@ Dangling SPF includes enable email spoofing.
 ### SRV Records (`--check-srv`)
 
 Dangling SRV records can hijack services (autodiscover, SIP, etc.).
+
+### TXT Records (`--check-txt`)
+
+Dangling domain references in TXT records (SPF includes, DMARC rua/ruf, etc.).
+
+## SARIF Output
+
+Generate [SARIF](https://sarifweb.azurewebsites.net/) reports for integration with GitHub Code Scanning:
+
+```bash
+subvet scan -f targets.txt --report sarif > results.sarif
+```
+
+Upload to GitHub Code Scanning via the `github/codeql-action/upload-sarif` action.
 
 ## CI/CD Integration
 

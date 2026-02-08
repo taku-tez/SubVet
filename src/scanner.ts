@@ -15,6 +15,19 @@ import { HttpProber } from './http.js';
 import { findServiceByCname, fingerprints } from './fingerprints/index.js';
 import { escapeRegex } from './utils.js';
 import { VERSION } from './version.js';
+import { getDomain } from 'tldts';
+
+/**
+ * Extract the registrable domain (eTLD+1) from a hostname.
+ * Handles multi-part TLDs like co.uk, com.au correctly.
+ */
+export function getRegistrableDomain(host: string): string {
+  const registrable = getDomain(host, { allowPrivateDomains: false });
+  if (registrable) return registrable;
+  // Fallback for unusual inputs
+  const parts = host.split('.');
+  return parts.length >= 2 ? parts.slice(-2).join('.') : host;
+}
 
 export class Scanner {
   private dnsResolver: DnsResolver;
@@ -657,12 +670,8 @@ export class Scanner {
     const wildcardCache = new Map<string, WildcardResult>();
     const baseDomains = new Set<string>();
     for (const sub of subdomains) {
-      const parts = sub.split('.');
-      // Extract base domain (last 2 parts, e.g. example.com)
-      if (parts.length >= 2) {
-        const base = parts.slice(-2).join('.');
-        baseDomains.add(base);
-      }
+      const base = getRegistrableDomain(sub);
+      baseDomains.add(base);
     }
     await Promise.all(
       [...baseDomains].map(async (base) => {
@@ -676,8 +685,7 @@ export class Scanner {
       const batch = subdomains.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map(subdomain => {
-          const parts = subdomain.split('.');
-          const base = parts.length >= 2 ? parts.slice(-2).join('.') : subdomain;
+          const base = getRegistrableDomain(subdomain);
           return this.scanOne(subdomain, wildcardCache.get(base));
         })
       );

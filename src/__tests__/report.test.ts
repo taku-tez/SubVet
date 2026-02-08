@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { generateReport, generateMarkdownReport, generateHtmlReport, generateSarifReport } from '../report.js';
+import { generateReport, generateMarkdownReport, generateHtmlReport, generateSarifReport, REPO_URL } from '../report.js';
 import type { ScanOutput, ScanResult } from '../types.js';
 
 // Helper to create mock scan result
@@ -330,6 +330,15 @@ describe('generateSarifReport', () => {
     const sarif = JSON.parse(generateSarifReport(output));
     expect(sarif.runs[0].results).toHaveLength(0);
     expect(sarif.runs[0].tool.driver.rules).toHaveLength(0);
+  });
+
+  it('should use correct informationUri matching package.json repository', () => {
+    const output = createMockOutput([
+      createMockResult({ subdomain: 'a.example.com', status: 'vulnerable', service: 'S3', risk: 'critical' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].tool.driver.informationUri).toBe('https://github.com/taku-tez/SubVet');
+    expect(sarif.runs[0].tool.driver.informationUri).toBe(REPO_URL);
   });
 
   it('should deduplicate rules for same service', () => {

@@ -6,6 +6,9 @@ import type { ScanOutput } from './types.js';
 
 export type ReportFormat = 'html' | 'md' | 'json' | 'sarif';
 
+/** Canonical repository URL — keep in sync with package.json */
+export const REPO_URL = 'https://github.com/taku-tez/SubVet';
+
 /**
  * Generate HTML report
  */
@@ -322,7 +325,7 @@ export function generateSarifReport(output: ScanOutput): string {
         driver: {
           name: 'SubVet',
           version: output.version,
-          informationUri: 'https://github.com/3-shake/subvet',
+          informationUri: REPO_URL,
           rules: Array.from(rulesMap.values()),
         },
       },

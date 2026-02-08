@@ -88,50 +88,61 @@ runs:
     - name: Run SubVet
       id: scan
       shell: bash
+      env:
+        INPUT_SUBDOMAINS: ${{ inputs.subdomains }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_CHECK_NS: ${{ inputs.check-ns }}
+        INPUT_CHECK_MX: ${{ inputs.check-mx }}
+        INPUT_CHECK_SPF: ${{ inputs.check-spf }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_SLACK_WEBHOOK: ${{ inputs.slack-webhook }}
+        INPUT_SLACK_ON: ${{ inputs.slack-on }}
       run: |
-        # Build command
-        CMD="node ${{ github.action_path }}/dist/cli.js scan -f ${{ inputs.subdomains }}"
-        CMD="$CMD -t ${{ inputs.timeout }}"
-        CMD="$CMD -c ${{ inputs.concurrency }}"
-        CMD="$CMD -o ${{ inputs.output }}"
-        CMD="$CMD --pretty -v"
+        # Build command as array (no eval)
+        cmd=(node "$GITHUB_ACTION_PATH/dist/cli.js" scan -f "$INPUT_SUBDOMAINS")
+        cmd+=(-t "$INPUT_TIMEOUT")
+        cmd+=(-c "$INPUT_CONCURRENCY")
+        cmd+=(-o "$INPUT_OUTPUT")
+        cmd+=(--pretty -v)
         
         # Add optional flags
-        if [ "${{ inputs.check-ns }}" == "true" ]; then
-          CMD="$CMD --check-ns"
+        if [ "$INPUT_CHECK_NS" == "true" ]; then
+          cmd+=(--check-ns)
         fi
-        if [ "${{ inputs.check-mx }}" == "true" ]; then
-          CMD="$CMD --check-mx"
+        if [ "$INPUT_CHECK_MX" == "true" ]; then
+          cmd+=(--check-mx)
         fi
-        if [ "${{ inputs.check-spf }}" == "true" ]; then
-          CMD="$CMD --check-spf"
+        if [ "$INPUT_CHECK_SPF" == "true" ]; then
+          cmd+=(--check-spf)
         fi
         
         # Add diff mode if baseline exists
-        if [ -n "${{ inputs.baseline }}" ] && [ -f "${{ inputs.baseline }}" ]; then
-          CMD="$CMD --diff ${{ inputs.baseline }}"
+        if [ -n "$INPUT_BASELINE" ] && [ -f "$INPUT_BASELINE" ]; then
+          cmd+=(--diff "$INPUT_BASELINE")
         fi
         
         # Add Slack notification
-        if [ -n "${{ inputs.slack-webhook }}" ]; then
-          CMD="$CMD --slack-webhook '${{ inputs.slack-webhook }}' --slack-on ${{ inputs.slack-on }}"
+        if [ -n "$INPUT_SLACK_WEBHOOK" ]; then
+          cmd+=(--slack-webhook "$INPUT_SLACK_WEBHOOK" --slack-on "$INPUT_SLACK_ON")
         fi
         
-        echo "Running: $CMD"
+        echo "Running: ${cmd[*]}"
         
         # Run and capture exit code
         set +e
-        eval $CMD
+        "${cmd[@]}"
         EXIT_CODE=$?
         set -e
         
         echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
         
         # Parse results
-        if [ -f "${{ inputs.output }}" ]; then
-          VULNERABLE=$(jq '.summary.vulnerable' ${{ inputs.output }})
-          LIKELY=$(jq '.summary.likely' ${{ inputs.output }})
-          TOTAL=$(jq '.summary.total' ${{ inputs.output }})
+        if [ -f "$INPUT_OUTPUT" ]; then
+          VULNERABLE=$(jq '.summary.vulnerable' "$INPUT_OUTPUT")
+          LIKELY=$(jq '.summary.likely' "$INPUT_OUTPUT")
+          TOTAL=$(jq '.summary.total' "$INPUT_OUTPUT")
           
           echo "vulnerable=$VULNERABLE" >> $GITHUB_OUTPUT
           echo "likely=$LIKELY" >> $GITHUB_OUTPUT

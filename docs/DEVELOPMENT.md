@@ -22,3 +22,7 @@ All major features have been implemented:
 - 192 tests, 82%+ coverage
 
 For current documentation, see the main [README.md](../README.md).
+
+## Development Rules
+
+- When changing CLI options or output formats, update `README.md` accordingly.

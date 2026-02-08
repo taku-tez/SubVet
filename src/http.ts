@@ -53,10 +53,10 @@ export class HttpProber {
       headers: {}
     };
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.options.timeout);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.options.timeout);
 
+    try {
       const response = await fetch(url, {
         method: 'GET',
         redirect: this.options.followRedirects ? 'follow' : 'manual',
@@ -67,8 +67,6 @@ export class HttpProber {
           'Accept-Language': 'en-US,en;q=0.5',
         }
       });
-
-      clearTimeout(timeoutId);
 
       result.status = response.status;
       result.responseTime = Date.now() - startTime;
@@ -130,6 +128,8 @@ export class HttpProber {
       } else if (error.message.includes('certificate')) {
         result.error = 'SSL certificate error';
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     return result;
