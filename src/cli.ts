@@ -72,6 +72,19 @@ program
         process.exit(1);
       }
 
+      // Validate enum options
+      const validReportFormats = ['json', 'md', 'html'];
+      if (options.report && !validReportFormats.includes(options.report)) {
+        console.error(chalk.red(`Error: Invalid --report format "${options.report}". Must be one of: ${validReportFormats.join(', ')}`));
+        process.exit(1);
+      }
+
+      const validSlackOn = ['always', 'issues', 'new'];
+      if (options.slackOn && !validSlackOn.includes(options.slackOn)) {
+        console.error(chalk.red(`Error: Invalid --slack-on value "${options.slackOn}". Must be one of: ${validSlackOn.join(', ')}`));
+        process.exit(1);
+      }
+
       // Validate numeric options
       const timeout = Number(options.timeout);
       const concurrency = Number(options.concurrency);
@@ -399,7 +412,6 @@ function printResult(result: ScanResult): void {
     vulnerable: chalk.red,
     likely: chalk.yellow,
     potential: chalk.magenta,
-    edge_case: chalk.cyan,
     not_vulnerable: chalk.green,
     unknown: chalk.gray
   };

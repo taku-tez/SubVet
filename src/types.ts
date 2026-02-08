@@ -6,7 +6,6 @@ export type TakeoverStatus =
   | 'vulnerable'      // Confirmed takeover possible
   | 'likely'          // High probability of takeover
   | 'potential'       // Needs manual verification
-  | 'edge_case'       // Edge case, might be vulnerable
   | 'not_vulnerable'  // Service is properly configured
   | 'unknown';        // Could not determine
 

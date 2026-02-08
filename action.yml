@@ -78,16 +78,19 @@ runs:
       with:
         node-version: '20'
 
-    - name: Install SubVet
+    - name: Build SubVet
       shell: bash
-      run: npm install -g subvet
+      run: |
+        cd ${{ github.action_path }}
+        npm install
+        npm run build
 
     - name: Run SubVet
       id: scan
       shell: bash
       run: |
         # Build command
-        CMD="subvet scan -f ${{ inputs.subdomains }}"
+        CMD="node ${{ github.action_path }}/dist/cli.js scan -f ${{ inputs.subdomains }}"
         CMD="$CMD -t ${{ inputs.timeout }}"
         CMD="$CMD -c ${{ inputs.concurrency }}"
         CMD="$CMD -o ${{ inputs.output }}"

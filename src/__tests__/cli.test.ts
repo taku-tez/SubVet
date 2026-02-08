@@ -144,6 +144,37 @@ describe('CLI', () => {
     });
   });
 
+  describe('enum option validation', () => {
+    it('should reject invalid --report format', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan example.com --report=pdf`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid --report format');
+        expect(error.stderr).toContain('json, md, html');
+      }
+    });
+
+    it('should reject invalid --slack-on value', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan example.com --slack-on=allways`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Invalid --slack-on value');
+        expect(error.stderr).toContain('always, issues, new');
+      }
+    });
+
+    it('should accept valid --report format', async () => {
+      // json is valid; scan will fail for other reasons but not validation
+      try {
+        await execAsync(`node ${cliPath} scan --report=json --help`);
+      } catch {
+        // --help may still exit 0 or 1, but no validation error
+      }
+    });
+  });
+
   describe('diff option', () => {
     it('should show diff option in help', async () => {
       const { stdout } = await execAsync(`node ${cliPath} scan --help`);

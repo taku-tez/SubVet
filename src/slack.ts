@@ -137,14 +137,16 @@ export function formatScanMessage(output: ScanOutput): SlackMessage {
  * Format diff results as a Slack message
  */
 export function formatDiffMessage(diff: DiffResult): SlackMessage {
-  const hasNewIssues = diff.summary.newVulnerable > 0 || diff.summary.newLikely > 0;
+  const hasNewIssues = diff.summary.newVulnerable > 0 || diff.summary.newLikely > 0 || diff.summary.newPotential > 0;
   
   const emoji = diff.summary.newVulnerable > 0 ? '🚨' :
                 diff.summary.newLikely > 0 ? '⚠️' :
+                diff.summary.newPotential > 0 ? '🟡' :
                 diff.summary.resolved > 0 ? '✅' : '📊';
 
   const statusText = diff.summary.newVulnerable > 0 ? 'NEW VULNERABILITIES' :
                      diff.summary.newLikely > 0 ? 'New Likely Issues' :
+                     diff.summary.newPotential > 0 ? 'New Potential Issues' :
                      diff.summary.resolved > 0 ? 'Issues Resolved' :
                      'No Changes';
 
@@ -166,6 +168,7 @@ export function formatDiffMessage(diff: DiffResult): SlackMessage {
         { type: 'mrkdwn', text: `*Current:*\n${diff.current.total} targets` },
         { type: 'mrkdwn', text: `*🔴 New Vulnerable:*\n${diff.summary.newVulnerable}` },
         { type: 'mrkdwn', text: `*🟠 New Likely:*\n${diff.summary.newLikely}` },
+        { type: 'mrkdwn', text: `*🟡 New Potential:*\n${diff.summary.newPotential}` },
         { type: 'mrkdwn', text: `*✅ Resolved:*\n${diff.summary.resolved}` },
         { type: 'mrkdwn', text: `*Unchanged:*\n${diff.summary.unchanged}` },
       ],
@@ -175,11 +178,11 @@ export function formatDiffMessage(diff: DiffResult): SlackMessage {
   // Add new issues
   if (hasNewIssues) {
     const newIssues = diff.entries.filter(
-      e => e.type === 'new' && (e.currentStatus === 'vulnerable' || e.currentStatus === 'likely')
+      e => e.type === 'new' && (e.currentStatus === 'vulnerable' || e.currentStatus === 'likely' || e.currentStatus === 'potential')
     );
 
     const issueLines = newIssues.slice(0, 10).map(e => {
-      const icon = e.currentStatus === 'vulnerable' ? '🔴' : '🟠';
+      const icon = e.currentStatus === 'vulnerable' ? '🔴' : e.currentStatus === 'likely' ? '🟠' : '🟡';
       const service = e.service ? ` (${e.service})` : '';
       return `${icon} \`${e.subdomain}\`${service}`;
     });

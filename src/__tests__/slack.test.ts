@@ -232,6 +232,42 @@ describe('formatDiffMessage', () => {
     expect(blocksStr).toContain('fixed.example.com');
     expect(blocksStr).toContain('was vulnerable');
   });
+
+  it('should include newPotential in diff message', () => {
+    const diff: DiffResult = {
+      version: '0.8.0',
+      timestamp: '2024-01-01T00:00:00Z',
+      baseline: { timestamp: '2024-01-01T00:00:00Z', total: 5 },
+      current: { timestamp: '2024-01-02T00:00:00Z', total: 6 },
+      summary: {
+        newVulnerable: 0,
+        newLikely: 0,
+        newPotential: 1,
+        resolved: 0,
+        unchanged: 5,
+        statusChanged: 0,
+      },
+      entries: [
+        {
+          subdomain: 'maybe.example.com',
+          type: 'new',
+          currentStatus: 'potential',
+          service: 'Unknown SaaS',
+          evidence: ['Stale CNAME detected'],
+          risk: 'medium',
+        },
+      ],
+    };
+
+    const message = formatDiffMessage(diff);
+
+    expect(message.text).toContain('🟡');
+    expect(message.text).toContain('New Potential Issues');
+
+    const blocksStr = JSON.stringify(message.blocks);
+    expect(blocksStr).toContain('New Potential');
+    expect(blocksStr).toContain('maybe.example.com');
+  });
 });
 
 describe('sendSlackWebhook', () => {

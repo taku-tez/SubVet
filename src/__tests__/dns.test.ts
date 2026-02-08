@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DnsResolver, quickDnsCheck } from '../dns.js';
 
 describe('DnsResolver', () => {
@@ -226,6 +226,30 @@ describe('DnsResolver advanced', () => {
         expect(['A', 'AAAA', 'CNAME', 'NS', 'MX', 'TXT']).toContain(record.type);
         expect(record.value).toBeDefined();
       }
+    });
+  });
+
+  describe('trailing dot normalization', () => {
+    it('should normalize trailing dot in NS target for dangling check', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      // A trailing-dot FQDN like "ns1.google.com." should resolve the same as "ns1.google.com"
+      const withDot = await resolver.isNsDangling('ns1.google.com.');
+      const withoutDot = await resolver.isNsDangling('ns1.google.com');
+      expect(withDot).toBe(withoutDot);
+    });
+
+    it('should normalize trailing dot in MX target for dangling check', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const withDot = await resolver.isMxDangling('alt1.aspmx.l.google.com.');
+      const withoutDot = await resolver.isMxDangling('alt1.aspmx.l.google.com');
+      expect(withDot).toBe(withoutDot);
+    });
+
+    it('should normalize trailing dot in SRV target for dangling check', async () => {
+      const resolver = new DnsResolver({ timeout: 5000 });
+      const withDot = await resolver.isSrvTargetDangling('sip.example.com.');
+      const withoutDot = await resolver.isSrvTargetDangling('sip.example.com');
+      expect(withDot).toBe(withoutDot);
     });
   });
 });

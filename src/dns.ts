@@ -227,7 +227,7 @@ export class DnsResolver {
    * Check if a nameserver appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isNsDangling(ns: string): Promise<boolean> {
-    return !(await this.targetResolves(ns));
+    return !(await this.targetResolves(this.normalizeDomain(ns)));
   }
 
   /**
@@ -269,7 +269,7 @@ export class DnsResolver {
    * Check if a mail server appears to be dangling (doesn't resolve via A or AAAA)
    */
   async isMxDangling(mx: string): Promise<boolean> {
-    return !(await this.targetResolves(mx));
+    return !(await this.targetResolves(this.normalizeDomain(mx)));
   }
 
   /**
@@ -402,7 +402,7 @@ export class DnsResolver {
     if (target === '.' || target === '') {
       return false;
     }
-    return !(await this.targetResolves(target));
+    return !(await this.targetResolves(this.normalizeDomain(target)));
   }
 
   /**
