@@ -6,6 +6,14 @@ import dns from 'node:dns';
 import { promisify } from 'node:util';
 import crypto from 'node:crypto';
 import type { DnsResult } from './types.js';
+import {
+  DNS_TIMEOUT_MS,
+  CNAME_CHAIN_MAX_DEPTH,
+  WILDCARD_PROBE_COUNT,
+  RETRY_BASE_DELAY_MS,
+  DEFAULT_RETRY_COUNT,
+  SRV_PREFIXES,
+} from './constants.js';
 
 export interface WildcardResult {
   isWildcard: boolean;
@@ -39,7 +47,7 @@ export class DnsResolver {
   private checkTxt: boolean;
 
   constructor(options: DnsResolverOptions = {}) {
-    this.timeout = options.timeout ?? 5000;
+    this.timeout = options.timeout ?? DNS_TIMEOUT_MS;
     this.checkNs = options.checkNs ?? false;
     this.checkMx = options.checkMx ?? false;
     this.checkSpf = options.checkSpf ?? false;
@@ -74,7 +82,7 @@ export class DnsResolver {
 
         // Follow CNAME chain
         let chainDepth = 0;
-        while (chainDepth < 10) {
+        while (chainDepth < CNAME_CHAIN_MAX_DEPTH) {
           try {
             const nextCnames = await this.withTimeout(resolveCname(currentCname));
             if (nextCnames && nextCnames.length > 0) {
@@ -363,23 +371,12 @@ export class DnsResolver {
    * Check common SRV records for dangling targets
    */
   private async checkSrvRecords(subdomain: string, result: DnsResult): Promise<void> {
-    // Common SRV record prefixes to check
-    const srvPrefixes = [
-      '_autodiscover._tcp',  // Microsoft Exchange
-      '_sip._tcp',           // SIP/VoIP
-      '_sip._tls',           // SIP over TLS
-      '_xmpp-client._tcp',   // XMPP/Jabber
-      '_xmpp-server._tcp',   // XMPP server-to-server
-      '_caldav._tcp',        // CalDAV
-      '_carddav._tcp',       // CardDAV
-    ];
-
     const allSrvRecords: string[] = [];
     const targetsToCheck: { prefix: string; target: string }[] = [];
 
     // Resolve all SRV prefixes in parallel
     const srvResults = await Promise.allSettled(
-      srvPrefixes.map(async (prefix) => {
+      SRV_PREFIXES.map(async (prefix) => {
         const srvDomain = `${prefix}.${subdomain}`;
         const records = await this.withTimeout(resolveSrv(srvDomain));
         return { prefix, records };
@@ -525,8 +522,7 @@ export class DnsResolver {
    * A domain is considered wildcard if a majority of probes return responses.
    */
   async checkWildcard(domain: string): Promise<WildcardResult> {
-    const probeCount = 3;
-    const probes = Array.from({ length: probeCount }, () => {
+    const probes = Array.from({ length: WILDCARD_PROBE_COUNT }, () => {
       const randomLabel = crypto.randomBytes(8).toString('hex');
       return `${randomLabel}.${domain}`;
     });
@@ -562,7 +558,7 @@ export class DnsResolver {
     }
 
     // Majority of probes must respond to be considered wildcard
-    const majority = Math.ceil(probeCount / 2);
+    const majority = Math.ceil(WILDCARD_PROBE_COUNT / 2);
     if (successCount >= majority) {
       const wildcardIps = [...allIps];
       return {
@@ -605,7 +601,7 @@ export class DnsResolver {
   /**
    * Retry wrapper for DNS operations (for future use)
    */
-  async withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  async withRetry<T>(fn: () => Promise<T>, retries = DEFAULT_RETRY_COUNT): Promise<T> {
     let lastError: Error | null = null;
     for (let i = 0; i <= retries; i++) {
       try {
@@ -614,7 +610,7 @@ export class DnsResolver {
         lastError = err as Error;
         if (i < retries) {
           // Wait before retry (exponential backoff)
-          await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
+          await new Promise(resolve => setTimeout(resolve, RETRY_BASE_DELAY_MS * Math.pow(2, i)));
         }
       }
     }

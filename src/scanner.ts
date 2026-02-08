@@ -7,15 +7,27 @@ import type {
   ScanOptions,
   ScanOutput,
   ScanSummary,
-  FingerprintRule,
   ServiceFingerprint
 } from './types.js';
 import { DnsResolver, type WildcardResult } from './dns.js';
 import { HttpProber } from './http.js';
 import { findServiceByCname, fingerprints } from './fingerprints/index.js';
-import { escapeRegex } from './utils.js';
 import { VERSION } from './version.js';
 import { getDomain } from 'tldts';
+import {
+  checkFingerprints,
+  checkDnsFingerprints,
+  checkGenericPatterns,
+  checkStaleCname,
+} from './fingerprint-checker.js';
+import { applyWildcardAdjustment } from './wildcard.js';
+import {
+  SCAN_TIMEOUT_MS,
+  DEFAULT_CONCURRENCY,
+  CONFIDENCE_VULNERABLE,
+  CONFIDENCE_DEFAULT_MIN,
+  CONFIDENCE_SCALE,
+} from './constants.js';
 
 /**
  * Extract the registrable domain (eTLD+1) from a hostname.
@@ -36,8 +48,8 @@ export class Scanner {
 
   constructor(options: Partial<ScanOptions> = {}) {
     this.options = {
-      timeout: options.timeout ?? 10000,
-      concurrency: options.concurrency ?? 10,
+      timeout: options.timeout ?? SCAN_TIMEOUT_MS,
+      concurrency: options.concurrency ?? DEFAULT_CONCURRENCY,
       httpProbe: options.httpProbe ?? true,
       nsCheck: options.nsCheck ?? false,
       mxCheck: options.mxCheck ?? false,
@@ -97,12 +109,11 @@ export class Scanner {
 
     // Step 3: Check DNS fingerprint rules (dns_nxdomain, dns_cname)
     if (matchedService) {
-      const dnsMatches = this.checkDnsFingerprints(matchedService, result.dns, result.cname);
+      const dnsMatches = checkDnsFingerprints(matchedService, result.dns, result.cname);
       if (dnsMatches.length > 0) {
         result.evidence.push(...dnsMatches);
         
         if (matchedService.takeoverPossible) {
-          // DNS match alone is "likely", not "vulnerable" (needs HTTP confirmation)
           if (result.status === 'unknown') {
             result.status = 'likely';
             result.risk = 'high';
@@ -134,33 +145,28 @@ export class Scanner {
       result.http = await this.httpProber.probe(subdomain);
 
       if (matchedService && result.http.body) {
-        const { matches, confidence, requiredMet, negativeMatch } = this.checkFingerprints(matchedService, result.http);
-        const minConfidence = matchedService.minConfidence ?? 3;
+        const { matches, confidence, requiredMet, negativeMatch } = checkFingerprints(matchedService, result.http);
+        const minConfidence = matchedService.minConfidence ?? CONFIDENCE_DEFAULT_MIN;
         
         if (matches.length > 0) {
           result.evidence.push(...matches);
-          result.evidence.push(`Confidence: ${confidence}/10`);
+          result.evidence.push(`Confidence: ${confidence}/${CONFIDENCE_SCALE}`);
           
-          // Negative pattern matched = safe
           if (negativeMatch) {
             result.status = 'not_vulnerable';
             result.risk = 'info';
           } else if (!requiredMet) {
-            // Required rules not met = potential only
             result.status = 'potential';
             result.risk = 'low';
             result.evidence.push('Required fingerprint not matched');
           } else if (matchedService.takeoverPossible) {
-            if (confidence >= 7) {
-              // High confidence: multiple strong indicators
+            if (confidence >= CONFIDENCE_VULNERABLE) {
               result.status = 'vulnerable';
               result.risk = 'critical';
             } else if (confidence >= minConfidence) {
-              // Medium confidence: some indicators
               result.status = 'likely';
               result.risk = 'high';
             } else {
-              // Low confidence: weak indicators only
               result.status = 'potential';
               result.risk = 'medium';
             }
@@ -174,7 +180,7 @@ export class Scanner {
 
       // Generic checks for unrecognized services
       if (!matchedService && result.http.body) {
-        const genericChecks = this.checkGenericPatterns(result.http.body, result.http.status);
+        const genericChecks = checkGenericPatterns(result.http.body, result.http.status);
         if (genericChecks.length > 0) {
           result.evidence.push(...genericChecks);
           result.status = 'potential';
@@ -183,10 +189,9 @@ export class Scanner {
       }
 
       // Step 4c: Stale CNAME detection (generic)
-      // If CNAME exists but status is safe or unknown, check for signs of abandoned SaaS config
       if (result.cname && (result.status === 'not_vulnerable' || result.status === 'unknown')) {
         if (result.http) {
-          const staleChecks = this.checkStaleCname(result.cname, result.http, result.dns.nxdomain);
+          const staleChecks = checkStaleCname(result.cname, result.http, result.dns.nxdomain);
           if (staleChecks.length > 0) {
             result.evidence.push(...staleChecks);
             result.status = 'potential';
@@ -209,7 +214,6 @@ export class Scanner {
     // Step 5b: Check for dangling MX records
     if (result.dns.mxDangling && result.dns.mxDangling.length > 0) {
       result.evidence.push(`Dangling MX record: ${result.dns.mxDangling.join(', ')}`);
-      // MX takeover is critical - allows email interception
       if (result.status !== 'vulnerable') {
         result.status = 'vulnerable';
         result.risk = 'critical';
@@ -221,7 +225,6 @@ export class Scanner {
     // Step 5c: Check for dangling SPF includes
     if (result.dns.spfDangling && result.dns.spfDangling.length > 0) {
       result.evidence.push(`Dangling SPF include: ${result.dns.spfDangling.join(', ')}`);
-      // SPF bypass allows phishing
       if (result.status !== 'vulnerable') {
         result.status = 'vulnerable';
         result.risk = 'high';
@@ -233,7 +236,6 @@ export class Scanner {
     // Step 5d: Check for dangling SRV records
     if (result.dns.srvDangling && result.dns.srvDangling.length > 0) {
       result.evidence.push(`Dangling SRV record: ${result.dns.srvDangling.join(', ')}`);
-      // SRV takeover can hijack services like autodiscover, SIP, etc.
       if (result.status !== 'vulnerable') {
         result.status = 'vulnerable';
         result.risk = 'high';
@@ -264,438 +266,11 @@ export class Scanner {
     }
 
     // Step 7: Wildcard DNS adjustment
-    // Skip wildcard downgrade for confirmed DNS-based vulnerabilities (NS/MX/SPF/SRV dangling).
-    // These are deterministic findings that should not be weakened by wildcard heuristics.
-    const hasDnsDanglingVuln = !!(
-      (result.dns.nsDangling && result.dns.nsDangling.length > 0) ||
-      (result.dns.mxDangling && result.dns.mxDangling.length > 0) ||
-      (result.dns.spfDangling && result.dns.spfDangling.length > 0) ||
-      (result.dns.srvDangling && result.dns.srvDangling.length > 0)
-    );
-
     if (wildcardInfo?.isWildcard) {
-      result.evidence.push('Wildcard DNS detected');
-
-      if (hasDnsDanglingVuln) {
-        result.evidence.push('Wildcard adjustment skipped — DNS dangling vulnerability confirmed');
-      } else {
-        // If subdomain resolves to the same IP as wildcard and has no CNAME, it's likely just wildcard
-        const aRecords = result.dns.records.filter(r => r.type === 'A').map(r => r.value);
-        const aaaaRecords = result.dns.records.filter(r => r.type === 'AAAA').map(r => r.value);
-        const allIpRecords = [...aRecords, ...aaaaRecords];
-        const hasCname = result.dns.records.some(r => r.type === 'CNAME');
-
-        const wildcardIps = wildcardInfo.wildcardIps ?? (wildcardInfo.wildcardIp ? [wildcardInfo.wildcardIp] : []);
-        const matchCount = allIpRecords.filter(ip => wildcardIps.includes(ip)).length;
-        const allMatch = allIpRecords.length > 0 && matchCount === allIpRecords.length;
-        const partialMatch = matchCount > 0 && matchCount < allIpRecords.length;
-
-        if (allMatch && !hasCname) {
-          // All IPs match wildcard set, no CNAME → almost certainly just wildcard response
-          result.status = 'not_vulnerable';
-          result.risk = 'info';
-          result.evidence.push(`All IPs match wildcard set [${wildcardIps.join(', ')}] — safe`);
-        } else if (partialMatch && !hasCname) {
-          // Partial IP match — reduce confidence but keep status
-          result.evidence.push(`Partial wildcard IP match (${matchCount}/${allIpRecords.length}) — confidence reduced`);
-          // Adjust confidence evidence string if present
-          const confIdx = result.evidence.findIndex(e => e.startsWith('Confidence:'));
-          if (confIdx >= 0) {
-            const confMatch = result.evidence[confIdx].match(/Confidence: (\d+)\/10/);
-            if (confMatch) {
-              const reduced = Math.max(0, parseInt(confMatch[1], 10) - 2);
-              result.evidence[confIdx] = `Confidence: ${reduced}/10`;
-            }
-          }
-        } else if (!hasCname && allIpRecords.length > 0) {
-          // Has A record but no CNAME in wildcard domain → reduce confidence
-          // Downgrade risk by adjusting confidence evidence
-          result.evidence.push('No CNAME in wildcard domain — confidence reduced');
-          if (result.risk === 'critical') {
-            result.risk = 'high';
-            result.status = 'likely';
-          } else if (result.risk === 'high') {
-            result.risk = 'medium';
-            result.status = 'potential';
-          } else if (result.risk === 'medium') {
-            result.risk = 'low';
-          }
-        }
-      }
+      applyWildcardAdjustment(result, wildcardInfo);
     }
 
     return result;
-  }
-
-  /**
-   * Check fingerprint rules against HTTP response
-   * Returns { matches, confidence, requiredMet }
-   * - confidence: 0-10 score based on matched rules
-   * - requiredMet: true if all required rules matched
-   */
-  private checkFingerprints(
-    service: ServiceFingerprint,
-    http: { status: number | null; body: string | null; headers: Record<string, string> }
-  ): { matches: string[]; confidence: number; requiredMet: boolean; negativeMatch: boolean } {
-    const matches: string[] = [];
-    let totalWeight = 0;
-    let matchedWeight = 0;
-    const requiredRules: { rule: FingerprintRule; matched: boolean }[] = [];
-
-    // Only evaluate HTTP-phase rules for totalWeight/requiredRules calculation.
-    // DNS rules (dns_nxdomain, dns_cname, etc.) are evaluated in checkDnsFingerprints()
-    // and should not dilute the HTTP confidence score.
-    const httpRuleTypes = new Set(['http_body', 'http_status', 'http_header']);
-
-    // Check positive patterns
-    for (const rule of service.fingerprints) {
-      // Skip non-HTTP rules — they don't belong in HTTP confidence scoring
-      if (!httpRuleTypes.has(rule.type)) {
-        continue;
-      }
-
-      const weight = rule.weight ?? 5;
-      totalWeight += weight;
-      let matched = false;
-
-      switch (rule.type) {
-        case 'http_body':
-          if (http.body && rule.pattern) {
-            const pattern = rule.pattern instanceof RegExp 
-              ? rule.pattern 
-              : new RegExp(escapeRegex(String(rule.pattern)), 'i');
-            
-            if (pattern.test(http.body)) {
-              matches.push(`HTTP body matches: "${rule.pattern}"`);
-              matchedWeight += weight;
-              matched = true;
-            }
-          }
-          break;
-
-        case 'http_status':
-          if (http.status === rule.value) {
-            matches.push(`HTTP status: ${rule.value}`);
-            matchedWeight += weight;
-            matched = true;
-          }
-          break;
-
-        case 'http_header':
-          if (rule.header && rule.pattern) {
-            const headerValue = http.headers[rule.header.toLowerCase()];
-            if (headerValue) {
-              const pattern = rule.pattern instanceof RegExp
-                ? rule.pattern
-                : new RegExp(escapeRegex(String(rule.pattern)), 'i');
-              
-              if (pattern.test(headerValue)) {
-                matches.push(`HTTP header ${rule.header} matches: "${rule.pattern}"`);
-                matchedWeight += weight;
-                matched = true;
-              }
-            }
-          }
-          break;
-
-      }
-
-      if (rule.required) {
-        requiredRules.push({ rule, matched });
-      }
-    }
-
-    // Check negative patterns (if any match, it's NOT vulnerable)
-    let negativeMatch = false;
-    if (service.negativePatterns) {
-      for (const neg of service.negativePatterns) {
-        switch (neg.type) {
-          case 'http_body':
-            if (http.body && neg.pattern) {
-              const pattern = neg.pattern instanceof RegExp
-                ? neg.pattern
-                : new RegExp(escapeRegex(String(neg.pattern)), 'i');
-              if (pattern.test(http.body)) {
-                matches.push(`Safe: ${neg.description}`);
-                negativeMatch = true;
-              }
-            }
-            break;
-          case 'http_status':
-            if (http.status === neg.value) {
-              matches.push(`Safe: ${neg.description}`);
-              negativeMatch = true;
-            }
-            break;
-          case 'http_header':
-            if (neg.header) {
-              const headerValue = http.headers[neg.header.toLowerCase()];
-              if (headerValue && neg.pattern) {
-                const pattern = neg.pattern instanceof RegExp
-                  ? neg.pattern
-                  : new RegExp(escapeRegex(String(neg.pattern)), 'i');
-                if (pattern.test(headerValue)) {
-                  matches.push(`Safe: ${neg.description}`);
-                  negativeMatch = true;
-                }
-              }
-            }
-            break;
-        }
-      }
-    }
-
-    // Calculate confidence (0-10 scale)
-    const confidence = totalWeight > 0 ? Math.round((matchedWeight / totalWeight) * 10) : 0;
-
-    // Check if all required rules matched
-    const requiredMet = requiredRules.length === 0 || requiredRules.every(r => r.matched);
-
-    return { matches, confidence, requiredMet, negativeMatch };
-  }
-
-  /**
-   * Check DNS fingerprint rules (dns_nxdomain, dns_cname, ns_nxdomain, mx_nxdomain, spf_include_nxdomain, srv_nxdomain)
-   */
-  private checkDnsFingerprints(
-    service: ServiceFingerprint,
-    dns: {
-      nxdomain: boolean;
-      cname?: string;
-      nsDangling?: string[];
-      mxDangling?: string[];
-      spfDangling?: string[];
-      srvDangling?: string[];
-      txtDangling?: string[];
-    },
-    cname: string | null
-  ): string[] {
-    const matches: string[] = [];
-
-    for (const rule of service.fingerprints) {
-      switch (rule.type) {
-        case 'dns_nxdomain':
-          if (dns.nxdomain) {
-            matches.push('DNS: CNAME target returns NXDOMAIN');
-          }
-          break;
-
-        case 'dns_cname':
-          if (cname && rule.pattern) {
-            const pattern = rule.pattern instanceof RegExp
-              ? rule.pattern
-              : new RegExp(escapeRegex(String(rule.pattern)), 'i');
-            
-            if (pattern.test(cname)) {
-              matches.push(`DNS: CNAME matches pattern "${rule.pattern}"`);
-            }
-          }
-          break;
-
-        case 'ns_nxdomain':
-          if (dns.nsDangling && dns.nsDangling.length > 0) {
-            matches.push(`DNS: Dangling NS delegation (${dns.nsDangling.join(', ')})`);
-          }
-          break;
-
-        case 'mx_nxdomain':
-          if (dns.mxDangling && dns.mxDangling.length > 0) {
-            matches.push(`DNS: Dangling MX record (${dns.mxDangling.join(', ')})`);
-          }
-          break;
-
-        case 'spf_include_nxdomain':
-          if (dns.spfDangling && dns.spfDangling.length > 0) {
-            matches.push(`DNS: Dangling SPF include (${dns.spfDangling.join(', ')})`);
-          }
-          break;
-
-        case 'srv_nxdomain':
-          if (dns.srvDangling && dns.srvDangling.length > 0) {
-            matches.push(`DNS: Dangling SRV record (${dns.srvDangling.join(', ')})`);
-          }
-          break;
-
-        case 'txt_ref_nxdomain':
-          if (dns.txtDangling && dns.txtDangling.length > 0) {
-            matches.push(`DNS: Dangling TXT domain reference (${dns.txtDangling.join(', ')})`);
-          }
-          break;
-      }
-    }
-
-    return matches;
-  }
-
-  /**
-   * Check generic patterns that might indicate takeover
-   * Now with stronger compound matching
-   */
-  private checkGenericPatterns(body: string, status: number | null): string[] {
-    const patterns: string[] = [];
-    
-    // Strong indicators (high confidence alone)
-    const strongIndicators = [
-      { pattern: /NoSuchBucket/i, desc: 'AWS S3 NoSuchBucket' },
-      { pattern: /bucket.*does.*not.*exist/i, desc: 'Bucket does not exist' },
-      { pattern: /domain.*not.*configured/i, desc: 'Domain not configured' },
-      { pattern: /no.*such.*app/i, desc: 'No such app' },
-      { pattern: /This.*subdomain.*is.*currently.*available/i, desc: 'Subdomain available' },
-      { pattern: /unclaimed/i, desc: 'Unclaimed resource' },
-      { pattern: /DEPLOYMENT_NOT_FOUND/i, desc: 'Deployment not found' }
-    ];
-
-    // Weak indicators (need status code to confirm)
-    const weakIndicators = [
-      { pattern: /site.*not.*found/i, desc: 'Site not found', needsStatus: [404, 410] },
-      { pattern: /project.*not.*found/i, desc: 'Project not found', needsStatus: [404] },
-      { pattern: /repository.*not.*found/i, desc: 'Repository not found', needsStatus: [404] },
-      { pattern: /page.*does.*not.*exist/i, desc: 'Page does not exist', needsStatus: [404, 410] },
-      { pattern: /there.*is.*nothing.*here/i, desc: 'Nothing here message', needsStatus: [404] }
-    ];
-
-    // Safe patterns (skip if these are present)
-    const safePatterns = [
-      /maintenance/i,
-      /coming.*soon/i,
-      /under.*construction/i,
-      /please.*log.*in/i,
-      /sign.*in.*required/i,
-      /authentication.*required/i
-    ];
-
-    // Check safe patterns first
-    for (const safe of safePatterns) {
-      if (safe.test(body)) {
-        return []; // Not vulnerable, skip generic checks
-      }
-    }
-
-    // Check strong indicators
-    for (const { pattern, desc } of strongIndicators) {
-      if (pattern.test(body)) {
-        patterns.push(`Strong indicator: ${desc}`);
-      }
-    }
-
-    // Check weak indicators (only if status matches)
-    for (const { pattern, desc, needsStatus } of weakIndicators) {
-      if (pattern.test(body) && status !== null && needsStatus.includes(status)) {
-        patterns.push(`Indicator: ${desc} (status ${status})`);
-      }
-    }
-
-    return patterns;
-  }
-
-  /**
-   * Check for stale CNAME records pointing to SaaS services no longer in use.
-   * Generic detection that works across unknown services.
-   */
-  private checkStaleCname(
-    cname: string | null,
-    http: { status: number | null; body: string | null; headers: Record<string, string> },
-    _nxdomain: boolean
-  ): string[] {
-    if (!cname) return [];
-    const checks: string[] = [];
-
-    // Pattern 1: CNAME exists but target returns NXDOMAIN
-    // (already handled by main flow, but reinforce)
-
-    // Pattern 2: Redirect to SaaS login/default page
-    const location = http.headers['location'] ?? '';
-    const saasLoginRedirects = [
-      { pattern: /marketo\.com/i, name: 'Marketo' },
-      { pattern: /salesforce\.com/i, name: 'Salesforce' },
-      { pattern: /pardot\.com/i, name: 'Pardot' },
-      { pattern: /hubspot\.com/i, name: 'HubSpot' },
-      { pattern: /zendesk\.com\/auth/i, name: 'Zendesk' },
-      { pattern: /freshdesk\.com\/login/i, name: 'Freshdesk' },
-      { pattern: /intercom\.com/i, name: 'Intercom' },
-      { pattern: /mailchimp\.com/i, name: 'Mailchimp' },
-      { pattern: /sendgrid\.(com|net)/i, name: 'SendGrid' },
-    ];
-
-    for (const { pattern, name } of saasLoginRedirects) {
-      if (pattern.test(location)) {
-        checks.push(`Stale CNAME: Redirects to ${name} login/default page`);
-        return checks;
-      }
-    }
-
-    // Pattern 3: SaaS default/error pages served (not customer content)
-    if (http.body) {
-      const saasDefaultPages = [
-        { pattern: /Login \| Marketo/i, name: 'Marketo' },
-        { pattern: /Pardot\s*·?\s*Login/i, name: 'Pardot' },
-        { pattern: /There isn't a .* page here/i, name: 'HubSpot' },
-        { pattern: /Domain not found.*hubspot/i, name: 'HubSpot' },
-        { pattern: /This UserVoice subdomain is currently available/i, name: 'UserVoice' },
-        { pattern: /Help Center Closed/i, name: 'Zendesk' },
-        { pattern: /project not found/i, name: 'Unknown SaaS' },
-        { pattern: /This page is reserved for/i, name: 'Unknown SaaS' },
-        { pattern: /is not a registered namespace/i, name: 'Unknown SaaS' },
-      ];
-
-      for (const { pattern, name } of saasDefaultPages) {
-        if (pattern.test(http.body)) {
-          checks.push(`Stale CNAME: ${name} default/error page detected`);
-          return checks;
-        }
-      }
-
-      // Pattern 4: CNAME to known SaaS domain but response is a generic error
-      const knownSaasDomains = [
-        /\.cloudfront\.net$/i,
-        /\.herokuapp\.com$/i,
-        /\.azurewebsites\.net$/i,
-        /\.trafficmanager\.net$/i,
-        /\.cloudapp\.azure\.com$/i,
-        /\.ghost\.io$/i,
-        /\.wordpress\.com$/i,
-        /\.shopify\.com$/i,
-        /\.myshopify\.com$/i,
-        /\.squarespace\.com$/i,
-        /\.webflow\.io$/i,
-        /\.netlify\.app$/i,
-        /\.vercel\.app$/i,
-        /\.firebaseapp\.com$/i,
-        /\.zendesk\.com$/i,
-        /\.freshdesk\.com$/i,
-        /\.intercom\.io$/i,
-        /\.statuspage\.io$/i,
-        /\.mktoedge\.com$/i,
-        /\.mktoweb\.com$/i,
-        /\.pardot\.com$/i,
-        /\.hubspot\.net$/i,
-        /\.hs-sites\.com$/i,
-        /\.sendgrid\.net$/i,
-      ];
-
-      const isKnownSaas = knownSaasDomains.some(p => p.test(cname));
-      if (isKnownSaas && http.status !== null) {
-        // CNAME to known SaaS + error status = likely stale
-        if (http.status === 404 || http.status === 403 || http.status === 410) {
-          // But only if body doesn't contain real content (>1KB of meaningful text)
-          const bodyLen = (http.body ?? '').length;
-          const hasMinimalContent = bodyLen < 2000;
-          if (hasMinimalContent) {
-            checks.push(`Stale CNAME: ${cname} returns ${http.status} with minimal content`);
-          }
-        }
-        // Redirect to SaaS root (not a specific page) = not configured
-        if ((http.status === 301 || http.status === 302) && location) {
-          const redirectsToSaasRoot = /^https?:\/\/[^/]+\/?$/.test(location) || 
-                                       /login|signin|auth/i.test(location);
-          if (redirectsToSaasRoot) {
-            checks.push(`Stale CNAME: ${cname} redirects to SaaS root/login (${http.status})`);
-          }
-        }
-      }
-    }
-
-    return checks;
   }
 
   /**
@@ -718,7 +293,6 @@ export class Scanner {
           const result = await this.dnsResolver.checkWildcard(base);
           wildcardCache.set(base, result);
         } catch (err) {
-          // Wildcard check failure should not abort the entire scan
           wildcardCache.set(base, { isWildcard: false });
           if (this.options.verbose) {
             process.stderr.write(`\nWarning: wildcard check failed for ${base}: ${(err as Error).message}\n`);

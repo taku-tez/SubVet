@@ -4,7 +4,6 @@
  * SubVet - CLI Entry Point
  */
 
-import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
@@ -17,44 +16,13 @@ import { sendSlackWebhook, formatScanMessage, formatDiffMessage } from './slack.
 import { isValidDomain, parseSubdomains } from './utils.js';
 import { VERSION } from './version.js';
 import type { ScanResult, ScanOutput } from './types.js';
+import { createProgram } from './cli-options.js';
 
-const program = new Command();
+const program = createProgram();
 
+// === scan command action ===
 program
-  .name('subvet')
-  .description('Subdomain takeover vulnerability scanner')
-  .version(VERSION);
-
-// Global option for custom signatures
-program
-  .option('--custom-signatures <dir>', 'Load additional signatures from a custom directory');
-
-// === scan command ===
-program
-  .command('scan')
-  .description('Scan subdomains for takeover vulnerabilities')
-  .argument('[target]', 'Domain or subdomain to scan')
-  .option('-f, --file <path>', 'Read subdomains from file (one per line)')
-  .option('--stdin', 'Read subdomains from stdin')
-  .option('-t, --timeout <ms>', 'Timeout for DNS/HTTP requests', '10000')
-  .option('-c, --concurrency <n>', 'Number of concurrent requests', '10')
-  .option('--no-http', 'Skip HTTP probing')
-  .option('--check-ns', 'Check for dangling NS delegation')
-  .option('--check-mx', 'Check for dangling MX records')
-  .option('--check-spf', 'Check for dangling SPF includes')
-  .option('--check-srv', 'Check for dangling SRV records')
-  .option('--check-txt', 'Check for dangling TXT domain references')
-  .option('-v, --verbose', 'Show progress')
-  .option('-o, --output <file>', 'Write JSON output to file')
-  .option('--pretty', 'Pretty print JSON output')
-  .option('--summary', 'Show summary only (no full results)')
-  .option('--report <format>', 'Generate report (html, md, json, sarif)')
-  .option('--diff <baseline>', 'Compare against baseline JSON file (CI mode)')
-  .option('--diff-json', 'Output diff as JSON (with --diff)')
-  .option('--slack-webhook <url>', 'Send results to Slack webhook')
-  .option('--slack-on <condition>', 'When to notify: always, issues, new (new = diff-mode only; falls back to issues in regular scan)', 'issues')
-  // Output mode priority: --diff > --report > --summary > JSON (default).
-  // When multiple are specified, the highest-priority mode wins.
+  .commands.find(c => c.name() === 'scan')!
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
@@ -254,18 +222,9 @@ program
     }
   });
 
-// === check command (single subdomain, human readable) ===
+// === check command action ===
 program
-  .command('check')
-  .description('Check a single subdomain (human-readable output)')
-  .argument('<subdomain>', 'Subdomain to check')
-  .option('-t, --timeout <ms>', 'Timeout for DNS/HTTP requests', '10000')
-  .option('--check-ns', 'Check for dangling NS delegation')
-  .option('--check-mx', 'Check for dangling MX records')
-  .option('--check-spf', 'Check for dangling SPF includes')
-  .option('--check-srv', 'Check for dangling SRV records')
-  .option('--check-txt', 'Check for dangling TXT domain references')
-  .option('--json', 'Output as JSON')
+  .commands.find(c => c.name() === 'check')!
   .action(async (subdomain, options) => {
     try {
       // Validate domain format
@@ -312,11 +271,9 @@ program
     }
   });
 
-// === services command ===
+// === services command action ===
 program
-  .command('services')
-  .description('List all supported services')
-  .option('--json', 'Output as JSON')
+  .commands.find(c => c.name() === 'services')!
   .action((options) => {
     const services = getAllFingerprints();
 
@@ -344,10 +301,9 @@ program
     console.log();
   });
 
-// === fingerprint command ===
+// === fingerprint command action ===
 program
-  .command('fingerprint <service>')
-  .description('Show fingerprint details for a service')
+  .commands.find(c => c.name() === 'fingerprint')!
   .action((service) => {
     const fps = getAllFingerprints();
     const fp = fps.find(f => 
@@ -380,14 +336,58 @@ program
     console.log();
   });
 
+// === signatures list command action ===
+const sigCmd = program.commands.find(c => c.name() === 'signatures')!;
+sigCmd.commands.find(c => c.name() === 'list')!
+  .action((options) => {
+    // Apply custom signatures from parent
+    const parentOpts = program.opts();
+    if (parentOpts.customSignatures) {
+      setCustomSignaturesDir(parentOpts.customSignatures);
+    }
+
+    const sigs = getAllFingerprints();
+
+    if (options.json) {
+      console.log(JSON.stringify(sigs.map(s => ({
+        service: s.service,
+        cnames: s.cnames,
+        takeoverPossible: s.takeoverPossible,
+        fingerprintCount: s.fingerprints.length,
+      })), null, 2));
+      return;
+    }
+
+    console.log(chalk.cyan(`\nLoaded Signatures: ${sigs.length}\n`));
+
+    const builtinDir = getBuiltinSignaturesDir();
+    console.log(chalk.gray(`Built-in: ${builtinDir}`));
+    if (parentOpts.customSignatures) {
+      console.log(chalk.gray(`Custom: ${parentOpts.customSignatures}`));
+    }
+    console.log();
+
+    for (const sig of sigs) {
+      const icon = sig.takeoverPossible ? chalk.red('●') : chalk.green('●');
+      console.log(`  ${icon} ${sig.service} ${chalk.gray(`(${sig.cnames.join(', ')})`)} ${chalk.gray(`[${sig.fingerprints.length} rules]`)}`);
+    }
+    console.log();
+  });
+
+// Apply custom signatures before any action
+program.hook('preAction', () => {
+  const opts = program.opts();
+  if (opts.customSignatures) {
+    setCustomSignaturesDir(opts.customSignatures);
+  }
+});
+
 // === Helper functions ===
 
 async function readFromFile(path: string, verbose = false): Promise<string[]> {
   const content = await readFile(path, 'utf-8');
-  // Use parseSubdomains for unified normalization (trim, lowercase, filter comments)
   const parsed = parseSubdomains(content);
   
-  // Validate domains
   const valid: string[] = [];
   for (const domain of parsed) {
     if (isValidDomain(domain)) {
@@ -412,10 +412,8 @@ async function readFromStdin(verbose = false): Promise<string[]> {
     });
 
     rl.on('close', () => {
-      // Use parseSubdomains for unified normalization (trim, lowercase, filter comments)
       const parsed = parseSubdomains(chunks.join('\n'));
       
-      // Validate domains
       const valid: string[] = [];
       for (const domain of parsed) {
         if (isValidDomain(domain)) {
@@ -525,58 +523,6 @@ function printResult(result: ScanResult): void {
 
   console.log();
 }
-
-// === signatures command ===
-const sigCmd = program
-  .command('signatures')
-  .description('Manage signature files');
-
-sigCmd
-  .command('list')
-  .description('List all loaded signatures')
-  .option('--json', 'Output as JSON')
-  .action((options) => {
-    // Apply custom signatures from parent
-    const parentOpts = program.opts();
-    if (parentOpts.customSignatures) {
-      setCustomSignaturesDir(parentOpts.customSignatures);
-    }
-
-    const sigs = getAllFingerprints();
-
-    if (options.json) {
-      console.log(JSON.stringify(sigs.map(s => ({
-        service: s.service,
-        cnames: s.cnames,
-        takeoverPossible: s.takeoverPossible,
-        fingerprintCount: s.fingerprints.length,
-      })), null, 2));
-      return;
-    }
-
-    console.log(chalk.cyan(`\nLoaded Signatures: ${sigs.length}\n`));
-
-    const builtinDir = getBuiltinSignaturesDir();
-    console.log(chalk.gray(`Built-in: ${builtinDir}`));
-    if (parentOpts.customSignatures) {
-      console.log(chalk.gray(`Custom: ${parentOpts.customSignatures}`));
-    }
-    console.log();
-
-    for (const sig of sigs) {
-      const icon = sig.takeoverPossible ? chalk.red('●') : chalk.green('●');
-      console.log(`  ${icon} ${sig.service} ${chalk.gray(`(${sig.cnames.join(', ')})`)} ${chalk.gray(`[${sig.fingerprints.length} rules]`)}`);
-    }
-    console.log();
-  });
-
-// Apply custom signatures before any action
-program.hook('preAction', () => {
-  const opts = program.opts();
-  if (opts.customSignatures) {
-    setCustomSignaturesDir(opts.customSignatures);
-  }
-});
 
 // Run CLI
 program.parse();
