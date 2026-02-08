@@ -984,6 +984,183 @@ describe('Scanner vulnerability detection', () => {
     });
   });
 
+  describe('FB Round 3: CNAME SERVFAIL/timeout should not be treated as dangling', () => {
+    it('should not mark as vulnerable when CNAME target has transient DNS failure', async () => {
+      // Simulate: CNAME exists, but dns.ts sets error instead of nxdomain for SERVFAIL
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'app.example.com',
+        records: [{ type: 'CNAME', value: 'app.saas-provider.com' }],
+        cname: 'app.saas-provider.com',
+        hasIpv4: false,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,  // NOT dangling — transient failure
+        error: 'CNAME target app.saas-provider.com: SERVFAIL (transient — not marked as dangling)'
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://app.example.com',
+        status: null,
+        body: null,
+        headers: {},
+        error: 'Connection failed'
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('app.example.com');
+
+      // Should NOT be vulnerable/likely since nxdomain is false
+      expect(result.status).not.toBe('vulnerable');
+      expect(result.status).not.toBe('likely');
+    });
+
+    it('should mark as dangling when CNAME target returns NXDOMAIN', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'old.example.com',
+        records: [{ type: 'CNAME', value: 'old.defunct-service.com' }],
+        cname: 'old.defunct-service.com',
+        hasIpv4: false,
+        hasIpv6: false,
+        resolved: false,
+        nxdomain: true  // Permanent failure → dangling
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://old.example.com',
+        status: null,
+        body: null,
+        headers: {},
+        error: 'NXDOMAIN'
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('old.example.com');
+
+      expect(result.dns.nxdomain).toBe(true);
+      expect(result.evidence.some(e => e.includes('NXDOMAIN'))).toBe(true);
+    });
+  });
+
+  describe('FB Round 3: Wildcard should not downgrade DNS dangling vulnerabilities', () => {
+    it('should keep NS dangling as vulnerable even with wildcard', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'sub.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        nsRecords: ['ns1.defunct.com'],
+        nsDangling: ['ns1.defunct.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://sub.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, nsCheck: true });
+      const result = await scanner.scanOne('sub.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4'
+      });
+
+      expect(result.status).toBe('vulnerable');
+      expect(result.risk).toBe('critical');
+      expect(result.evidence.some(e => e.includes('Wildcard adjustment skipped'))).toBe(true);
+    });
+
+    it('should keep MX dangling as vulnerable even with wildcard', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'mail.example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        mxRecords: ['mail.defunct.com'],
+        mxDangling: ['mail.defunct.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://mail.example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, mxCheck: true });
+      const result = await scanner.scanOne('mail.example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4'
+      });
+
+      expect(result.status).toBe('vulnerable');
+      expect(result.risk).toBe('critical');
+    });
+
+    it('should keep SPF dangling as vulnerable even with wildcard', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        spfRecord: 'v=spf1 include:defunct.com -all',
+        spfIncludes: ['defunct.com'],
+        spfDangling: ['defunct.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, spfCheck: true });
+      const result = await scanner.scanOne('example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4'
+      });
+
+      expect(result.status).toBe('vulnerable');
+      expect(result.risk).toBe('high');
+    });
+
+    it('should keep SRV dangling as vulnerable even with wildcard', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'example.com',
+        records: [{ type: 'A', value: '1.2.3.4' }],
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false,
+        srvRecords: ['_autodiscover._tcp: autodiscover.defunct.com'],
+        srvDangling: ['_autodiscover._tcp: autodiscover.defunct.com']
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://example.com',
+        status: 200,
+        body: 'OK',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000, srvCheck: true });
+      const result = await scanner.scanOne('example.com', {
+        isWildcard: true,
+        wildcardIp: '1.2.3.4'
+      });
+
+      expect(result.status).toBe('vulnerable');
+      expect(result.risk).toBe('high');
+    });
+  });
+
   describe('FB Round 2: Output mode priority', () => {
     // Output priority is documented and enforced in CLI; tested via cli.test.ts
     // Here we verify the scan output structure is consistent regardless

@@ -169,8 +169,25 @@ export class DnsResolver {
         (cnameIpv6Result.status === 'fulfilled' && cnameIpv6Result.value?.length > 0);
 
       if (!cnameResolved) {
-        // CNAME exists but final target doesn't resolve - dangling
-        result.nxdomain = true;
+        // Distinguish permanent failures (NXDOMAIN/ENODATA) from transient ones (SERVFAIL/timeout)
+        const errors: NodeJS.ErrnoException[] = [];
+        if (cnameIpv4Result.status === 'rejected') errors.push(cnameIpv4Result.reason as NodeJS.ErrnoException);
+        if (cnameIpv6Result.status === 'rejected') errors.push(cnameIpv6Result.reason as NodeJS.ErrnoException);
+
+        const hasTransientError = errors.some(e => 
+          e.code === 'SERVFAIL' || e.code === 'ESERVFAIL' || e.message === 'DNS timeout'
+        );
+        const hasPermanentError = errors.some(e =>
+          e.code === 'ENOTFOUND' || e.code === 'ENODATA'
+        );
+
+        if (hasTransientError && !hasPermanentError) {
+          // Transient failure — do NOT mark as dangling to avoid false positives
+          result.error = `CNAME target ${finalCname}: ${errors.map(e => e.code || e.message).join(', ')} (transient — not marked as dangling)`;
+        } else {
+          // Permanent failure (NXDOMAIN/ENODATA) or no errors at all — dangling
+          result.nxdomain = true;
+        }
       }
     }
 

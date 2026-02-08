@@ -99,6 +99,64 @@ describe('built-in YAML signatures', () => {
   });
 });
 
+describe('signature load resilience', () => {
+  it('should continue loading when one file is corrupt', () => {
+    const resilDir = join(testDir, 'resilience');
+    mkdirSync(resilDir, { recursive: true });
+
+    // Valid file
+    const validYaml = `
+- service: "Valid Service"
+  description: "Works fine"
+  cnames:
+    - "*.valid.example.com"
+  fingerprints:
+    - type: "http_body"
+      pattern: "error"
+      weight: 5
+  takeoverPossible: true
+`;
+    writeFileSync(join(resilDir, 'valid.yaml'), validYaml);
+
+    // Corrupt file
+    writeFileSync(join(resilDir, 'corrupt.yaml'), '{{{{not valid yaml at all:::');
+
+    const result = loadSignaturesFromDir(resilDir);
+    expect(result.length).toBe(1);
+    expect(result[0].service).toBe('Valid Service');
+  });
+
+  it('should continue when one entry has invalid fingerprint type', () => {
+    const badEntryDir = join(testDir, 'bad-entry');
+    mkdirSync(badEntryDir, { recursive: true });
+
+    const yaml = `
+- service: "Good Service"
+  description: "OK"
+  cnames:
+    - "*.good.example.com"
+  fingerprints:
+    - type: "http_body"
+      pattern: "test"
+      weight: 5
+  takeoverPossible: true
+- service: "Bad Service"
+  description: "Has bad type"
+  cnames:
+    - "*.bad.example.com"
+  fingerprints:
+    - type: "invalid_type_xyz"
+      pattern: "test"
+  takeoverPossible: false
+`;
+    writeFileSync(join(badEntryDir, 'mixed.yaml'), yaml);
+
+    const result = loadSignaturesFromDir(badEntryDir);
+    expect(result.length).toBe(1);
+    expect(result[0].service).toBe('Good Service');
+  });
+});
+
 describe('custom signatures directory', () => {
   it('should load custom signatures that override built-in', () => {
     const customDir = join(testDir, 'custom');

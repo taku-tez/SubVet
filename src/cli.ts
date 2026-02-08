@@ -52,12 +52,19 @@ program
   .option('--diff <baseline>', 'Compare against baseline JSON file (CI mode)')
   .option('--diff-json', 'Output diff as JSON (with --diff)')
   .option('--slack-webhook <url>', 'Send results to Slack webhook')
-  .option('--slack-on <condition>', 'When to notify: always, issues, new (default: issues)', 'issues')
+  .option('--slack-on <condition>', 'When to notify: always, issues, new (new = diff-mode only; falls back to issues in regular scan)', 'issues')
   // Output mode priority: --diff > --report > --summary > JSON (default).
   // When multiple are specified, the highest-priority mode wins.
   .action(async (target, options) => {
     try {
       let subdomains: string[] = [];
+
+      // Check for conflicting input sources
+      const inputSourceCount = [options.stdin, options.file, target].filter(Boolean).length;
+      if (inputSourceCount > 1) {
+        console.error(chalk.red('Error: Multiple input sources specified. Use only one of: target argument, --file, or --stdin'));
+        process.exit(1);
+      }
 
       // Collect subdomains from various sources
       if (options.stdin) {
@@ -210,12 +217,16 @@ program
       // Send Slack notification for regular scan mode
       if (options.slackWebhook && !options.diff) {
         const hasIssues = output.summary.vulnerable > 0 || output.summary.likely > 0 || output.summary.potential > 0;
-        const hasCritical = output.summary.vulnerable > 0 || output.summary.likely > 0;
+        
+        // 'new' is designed for diff mode (new issues only). In non-diff mode, treat as 'issues' with a warning.
+        if (options.slackOn === 'new' && options.verbose) {
+          console.error(chalk.yellow('Warning: --slack-on new is intended for diff mode. In regular scan mode, it behaves like "issues".'));
+        }
+        const effectiveSlackOn = (options.slackOn === 'new') ? 'issues' : options.slackOn;
         
         const shouldNotify = 
-          options.slackOn === 'always' ||
-          (options.slackOn === 'issues' && hasIssues) ||
-          (options.slackOn === 'new' && hasCritical);  // 'new' in non-diff mode = critical only
+          effectiveSlackOn === 'always' ||
+          (effectiveSlackOn === 'issues' && hasIssues);
 
         if (shouldNotify) {
           const message = formatScanMessage(output);

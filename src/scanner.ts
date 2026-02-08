@@ -264,32 +264,45 @@ export class Scanner {
     }
 
     // Step 7: Wildcard DNS adjustment
+    // Skip wildcard downgrade for confirmed DNS-based vulnerabilities (NS/MX/SPF/SRV dangling).
+    // These are deterministic findings that should not be weakened by wildcard heuristics.
+    const hasDnsDanglingVuln = !!(
+      (result.dns.nsDangling && result.dns.nsDangling.length > 0) ||
+      (result.dns.mxDangling && result.dns.mxDangling.length > 0) ||
+      (result.dns.spfDangling && result.dns.spfDangling.length > 0) ||
+      (result.dns.srvDangling && result.dns.srvDangling.length > 0)
+    );
+
     if (wildcardInfo?.isWildcard) {
       result.evidence.push('Wildcard DNS detected');
 
-      // If subdomain resolves to the same IP as wildcard and has no CNAME, it's likely just wildcard
-      const aRecords = result.dns.records.filter(r => r.type === 'A').map(r => r.value);
-      const aaaaRecords = result.dns.records.filter(r => r.type === 'AAAA').map(r => r.value);
-      const allIpRecords = [...aRecords, ...aaaaRecords];
-      const hasCname = result.dns.records.some(r => r.type === 'CNAME');
+      if (hasDnsDanglingVuln) {
+        result.evidence.push('Wildcard adjustment skipped — DNS dangling vulnerability confirmed');
+      } else {
+        // If subdomain resolves to the same IP as wildcard and has no CNAME, it's likely just wildcard
+        const aRecords = result.dns.records.filter(r => r.type === 'A').map(r => r.value);
+        const aaaaRecords = result.dns.records.filter(r => r.type === 'AAAA').map(r => r.value);
+        const allIpRecords = [...aRecords, ...aaaaRecords];
+        const hasCname = result.dns.records.some(r => r.type === 'CNAME');
 
-      if (wildcardInfo.wildcardIp && allIpRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
-        // Same IP (v4 or v6) as wildcard, no CNAME → almost certainly just wildcard response
-        result.status = 'not_vulnerable';
-        result.risk = 'info';
-        result.evidence.push(`Resolves to wildcard IP ${wildcardInfo.wildcardIp} — safe`);
-      } else if (!hasCname && allIpRecords.length > 0) {
-        // Has A record but no CNAME in wildcard domain → reduce confidence
-        // Downgrade risk by adjusting confidence evidence
-        result.evidence.push('No CNAME in wildcard domain — confidence reduced');
-        if (result.risk === 'critical') {
-          result.risk = 'high';
-          result.status = 'likely';
-        } else if (result.risk === 'high') {
-          result.risk = 'medium';
-          result.status = 'potential';
-        } else if (result.risk === 'medium') {
-          result.risk = 'low';
+        if (wildcardInfo.wildcardIp && allIpRecords.includes(wildcardInfo.wildcardIp) && !hasCname) {
+          // Same IP (v4 or v6) as wildcard, no CNAME → almost certainly just wildcard response
+          result.status = 'not_vulnerable';
+          result.risk = 'info';
+          result.evidence.push(`Resolves to wildcard IP ${wildcardInfo.wildcardIp} — safe`);
+        } else if (!hasCname && allIpRecords.length > 0) {
+          // Has A record but no CNAME in wildcard domain → reduce confidence
+          // Downgrade risk by adjusting confidence evidence
+          result.evidence.push('No CNAME in wildcard domain — confidence reduced');
+          if (result.risk === 'critical') {
+            result.risk = 'high';
+            result.status = 'likely';
+          } else if (result.risk === 'high') {
+            result.risk = 'medium';
+            result.status = 'potential';
+          } else if (result.risk === 'medium') {
+            result.risk = 'low';
+          }
         }
       }
     }

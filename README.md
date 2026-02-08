@@ -53,6 +53,9 @@ subvet scan --stdin < subdomains.txt
 |--------|-------------|---------|
 | `-f, --file <path>` | Read subdomains from file | - |
 | `--stdin` | Read from stdin | false |
+
+> **Input sources are mutually exclusive.** Specify only one of: target argument, `--file`, or `--stdin`. Combining multiple sources will result in an error.
+> **Duplicate subdomains** in the input are automatically removed (case-insensitive, order preserved).
 | `-t, --timeout <ms>` | Request timeout | 10000 |
 | `-c, --concurrency <n>` | Parallel requests | 10 |
 | `--no-http` | Skip HTTP probing | false |
@@ -137,6 +140,8 @@ subvet fingerprint "GitHub Pages"
 | `potential` | medium | Needs manual verification | 0 |
 | `not_vulnerable` | info | Properly configured | 0 |
 
+> **DNS dangling vulnerabilities** (NS/MX/SPF/SRV) are deterministic findings and are **not** downgraded by wildcard DNS heuristics. Only CNAME-based findings are subject to wildcard confidence adjustment.
+
 ## DNS Security Checks
 
 ### NS Delegation (`--check-ns`)
@@ -219,6 +224,10 @@ subvet scan -f subdomains.txt --diff baseline.json
 | `check-ns` | Check NS delegation | `true` |
 | `check-mx` | Check MX records | `true` |
 | `check-spf` | Check SPF includes | `false` |
+| `check-srv` | Check SRV records | `false` |
+| `check-txt` | Check TXT record references | `false` |
+| `report` | Report format (html, md, sarif) | - |
+| `diff-json` | Output diff as JSON | `false` |
 
 #### Action Outputs
 
@@ -251,7 +260,11 @@ jobs:
         with:
           subdomains: subdomains.txt
           baseline: baseline.json
+          check-srv: 'true'
+          check-txt: 'true'
+          report: sarif
           slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
+          slack-on: new
       
       - name: Fail on vulnerabilities
         if: steps.subvet.outputs.exit-code == '2'
@@ -275,7 +288,7 @@ Send scan results to Slack via webhooks.
 |-----------|-------------|
 | `always` | Notify on every scan |
 | `issues` | Notify when issues found (default) |
-| `new` | Notify only on new vulnerable/likely (CI mode) |
+| `new` | **Diff mode only:** notify on new vulnerable/likely. In regular scan mode, falls back to `issues` behavior with a warning. |
 
 ### Examples
 

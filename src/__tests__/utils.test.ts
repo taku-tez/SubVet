@@ -89,6 +89,22 @@ describe('parseSubdomains', () => {
       'sub2.example.com'
     ]);
   });
+
+  it('should deduplicate entries preserving order', () => {
+    const input = 'a.example.com\nb.example.com\na.example.com\nc.example.com';
+    expect(parseSubdomains(input)).toEqual([
+      'a.example.com',
+      'b.example.com',
+      'c.example.com'
+    ]);
+  });
+
+  it('should deduplicate case-insensitively', () => {
+    const input = 'A.EXAMPLE.COM\na.example.com\nA.Example.Com';
+    expect(parseSubdomains(input)).toEqual([
+      'a.example.com'
+    ]);
+  });
 });
 
 describe('isValidDomain', () => {

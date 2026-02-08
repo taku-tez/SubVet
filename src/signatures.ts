@@ -90,19 +90,34 @@ function convertSignature(raw: YamlSignature): ServiceFingerprint {
  * Load signatures from a directory of YAML files.
  * Returns empty array if directory doesn't exist.
  */
-export function loadSignaturesFromDir(dir: string): ServiceFingerprint[] {
+export function loadSignaturesFromDir(dir: string, options?: { verbose?: boolean }): ServiceFingerprint[] {
   const resolved = resolve(dir);
   if (!existsSync(resolved)) return [];
 
   const results: ServiceFingerprint[] = [];
+  const warnings: string[] = [];
   const files = readdirSync(resolved).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
 
   for (const file of files) {
-    const content = readFileSync(join(resolved, file), 'utf-8');
-    const raw = yaml.load(content) as YamlSignature[];
-    if (!Array.isArray(raw)) continue;
-    for (const entry of raw) {
-      results.push(convertSignature(entry));
+    try {
+      const content = readFileSync(join(resolved, file), 'utf-8');
+      const raw = yaml.load(content) as YamlSignature[];
+      if (!Array.isArray(raw)) continue;
+      for (const entry of raw) {
+        try {
+          results.push(convertSignature(entry));
+        } catch (err) {
+          warnings.push(`${file}: failed to convert entry "${entry?.service ?? 'unknown'}": ${(err as Error).message}`);
+        }
+      }
+    } catch (err) {
+      warnings.push(`${file}: ${(err as Error).message}`);
+    }
+  }
+
+  if (options?.verbose && warnings.length > 0) {
+    for (const w of warnings) {
+      process.stderr.write(`Warning: signature load error: ${w}\n`);
     }
   }
 

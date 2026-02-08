@@ -43,6 +43,21 @@ inputs:
     description: 'Check SPF includes'
     required: false
     default: 'false'
+  check-srv:
+    description: 'Check SRV records'
+    required: false
+    default: 'false'
+  check-txt:
+    description: 'Check TXT record references'
+    required: false
+    default: 'false'
+  report:
+    description: 'Report format (html, md, sarif). Written to report-output file.'
+    required: false
+  diff-json:
+    description: 'Output diff as JSON (with baseline)'
+    required: false
+    default: 'false'
   timeout:
     description: 'Request timeout in ms'
     required: false
@@ -96,6 +111,10 @@ runs:
         INPUT_CHECK_NS: ${{ inputs.check-ns }}
         INPUT_CHECK_MX: ${{ inputs.check-mx }}
         INPUT_CHECK_SPF: ${{ inputs.check-spf }}
+        INPUT_CHECK_SRV: ${{ inputs.check-srv }}
+        INPUT_CHECK_TXT: ${{ inputs.check-txt }}
+        INPUT_REPORT: ${{ inputs.report }}
+        INPUT_DIFF_JSON: ${{ inputs.diff-json }}
         INPUT_BASELINE: ${{ inputs.baseline }}
         INPUT_SLACK_WEBHOOK: ${{ inputs.slack-webhook }}
         INPUT_SLACK_ON: ${{ inputs.slack-on }}
@@ -117,10 +136,24 @@ runs:
         if [ "$INPUT_CHECK_SPF" == "true" ]; then
           cmd+=(--check-spf)
         fi
+        if [ "$INPUT_CHECK_SRV" == "true" ]; then
+          cmd+=(--check-srv)
+        fi
+        if [ "$INPUT_CHECK_TXT" == "true" ]; then
+          cmd+=(--check-txt)
+        fi
         
         # Add diff mode if baseline exists
         if [ -n "$INPUT_BASELINE" ] && [ -f "$INPUT_BASELINE" ]; then
           cmd+=(--diff "$INPUT_BASELINE")
+          if [ "$INPUT_DIFF_JSON" == "true" ]; then
+            cmd+=(--diff-json)
+          fi
+        fi
+        
+        # Add report format
+        if [ -n "$INPUT_REPORT" ]; then
+          cmd+=(--report "$INPUT_REPORT")
         fi
         
         # Add Slack notification

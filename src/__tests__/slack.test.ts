@@ -270,6 +270,49 @@ describe('formatDiffMessage', () => {
   });
 });
 
+describe('slack-on notification semantics', () => {
+  // These test the shouldNotify logic that lives in cli.ts
+  // We test the building blocks here: message formatting for diff vs scan
+
+  it('should format diff message with new issues for "new" condition', () => {
+    const diff: DiffResult = {
+      version: '0.8.0',
+      timestamp: '2026-02-08T00:00:00Z',
+      baseline: { timestamp: '2026-02-07T00:00:00Z', total: 5 },
+      current: { timestamp: '2026-02-08T00:00:00Z', total: 6 },
+      summary: {
+        newVulnerable: 1,
+        newLikely: 0,
+        newPotential: 0,
+        resolved: 0,
+        unchanged: 5,
+        statusChanged: 0,
+      },
+      entries: [{
+        subdomain: 'new.example.com',
+        type: 'new',
+        currentStatus: 'vulnerable',
+        service: 'AWS S3',
+        evidence: ['NoSuchBucket'],
+        risk: 'critical',
+      }],
+    };
+
+    const message = formatDiffMessage(diff);
+    expect(message.text).toContain('NEW VULNERABILITIES');
+  });
+
+  it('should format scan message the same way for "new" and "issues" in non-diff mode', () => {
+    // In non-diff mode, "new" falls back to "issues" behavior.
+    // The message format itself doesn't change; the shouldNotify logic in CLI handles it.
+    const output = createScanOutput([
+      createScanResult('vuln.example.com', 'vulnerable', 'AWS S3'),
+    ]);
+    const message = formatScanMessage(output);
+    expect(message.text).toContain('VULNERABILITIES FOUND');
+  });
+});
+
 describe('sendSlackWebhook', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());

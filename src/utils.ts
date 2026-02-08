@@ -66,10 +66,16 @@ export function chunk<T>(array: T[], size: number): T[][] {
  * Parse subdomain list from various formats
  */
 export function parseSubdomains(input: string): string[] {
-  return input
-    .split(/[\r\n,]+/)
-    .map(s => s.trim().toLowerCase())
-    .filter(s => s.length > 0 && !s.startsWith('#'));
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of input.split(/[\r\n,]+/)) {
+    const s = raw.trim().toLowerCase();
+    if (s.length > 0 && !s.startsWith('#') && !seen.has(s)) {
+      seen.add(s);
+      result.push(s);
+    }
+  }
+  return result;
 }
 
 /**

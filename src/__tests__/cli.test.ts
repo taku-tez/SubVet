@@ -209,6 +209,35 @@ describe('CLI', () => {
     });
   });
 
+  describe('input source conflict', () => {
+    it('should reject --stdin with --file', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan --stdin --file targets.txt`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Multiple input sources');
+      }
+    });
+
+    it('should reject --stdin with target argument', async () => {
+      try {
+        await execAsync(`echo "test" | node ${cliPath} scan example.com --stdin`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Multiple input sources');
+      }
+    });
+
+    it('should reject --file with target argument', async () => {
+      try {
+        await execAsync(`node ${cliPath} scan example.com --file targets.txt`);
+        expect(true).toBe(false);
+      } catch (error: any) {
+        expect(error.stderr).toContain('Multiple input sources');
+      }
+    });
+  });
+
   describe('numeric option validation', () => {
     it('should reject invalid timeout value', async () => {
       try {
