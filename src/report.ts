@@ -4,7 +4,7 @@
 
 import type { ScanOutput } from './types.js';
 
-export type ReportFormat = 'html' | 'md' | 'json';
+export type ReportFormat = 'html' | 'md' | 'json' | 'sarif';
 
 /**
  * Generate HTML report
@@ -218,6 +218,122 @@ function escapeMarkdownCell(text: string): string {
 }
 
 /**
+ * SARIF 2.1.0 types (subset)
+ */
+interface SarifReport {
+  $schema: string;
+  version: string;
+  runs: SarifRun[];
+}
+
+interface SarifRun {
+  tool: { driver: SarifDriver };
+  results: SarifResult[];
+}
+
+interface SarifDriver {
+  name: string;
+  version: string;
+  informationUri: string;
+  rules: SarifRule[];
+}
+
+interface SarifRule {
+  id: string;
+  name: string;
+  shortDescription: { text: string };
+  helpUri?: string;
+  properties?: { tags?: string[] };
+}
+
+interface SarifResult {
+  ruleId: string;
+  level: 'error' | 'warning' | 'note' | 'none';
+  message: { text: string };
+  locations: SarifLocation[];
+}
+
+interface SarifLocation {
+  physicalLocation: {
+    artifactLocation: { uri: string };
+  };
+}
+
+/**
+ * Map takeover status to SARIF level
+ */
+function statusToSarifLevel(status: string): 'error' | 'warning' | 'note' | 'none' {
+  switch (status) {
+    case 'vulnerable': return 'error';
+    case 'likely': return 'error';
+    case 'potential': return 'warning';
+    case 'not_vulnerable': return 'note';
+    default: return 'none';
+  }
+}
+
+/**
+ * Generate SARIF 2.1.0 report for GitHub Code Scanning integration
+ */
+export function generateSarifReport(output: ScanOutput): string {
+  const rulesMap = new Map<string, SarifRule>();
+  const sarifResults: SarifResult[] = [];
+
+  for (const result of output.results) {
+    // Skip safe/unknown results
+    if (result.status === 'not_vulnerable' || result.status === 'unknown') continue;
+
+    const serviceName = result.service || 'unknown';
+    const ruleId = `subvet/${serviceName.toLowerCase().replace(/\s+/g, '-')}`;
+
+    if (!rulesMap.has(ruleId)) {
+      rulesMap.set(ruleId, {
+        id: ruleId,
+        name: `${serviceName} Subdomain Takeover`,
+        shortDescription: { text: `Potential subdomain takeover via ${serviceName}` },
+        properties: { tags: ['security', 'subdomain-takeover'] },
+      });
+    }
+
+    const evidenceText = result.evidence.length > 0
+      ? `\nEvidence: ${result.evidence.join('; ')}`
+      : '';
+    const cnameText = result.cname ? ` (CNAME: ${result.cname})` : '';
+
+    sarifResults.push({
+      ruleId,
+      level: statusToSarifLevel(result.status),
+      message: {
+        text: `${result.subdomain} is ${result.status} to subdomain takeover via ${serviceName}${cnameText}${evidenceText}`,
+      },
+      locations: [{
+        physicalLocation: {
+          artifactLocation: { uri: result.subdomain },
+        },
+      }],
+    });
+  }
+
+  const sarif: SarifReport = {
+    $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+    version: '2.1.0',
+    runs: [{
+      tool: {
+        driver: {
+          name: 'SubVet',
+          version: output.version,
+          informationUri: 'https://github.com/3-shake/subvet',
+          rules: Array.from(rulesMap.values()),
+        },
+      },
+      results: sarifResults,
+    }],
+  };
+
+  return JSON.stringify(sarif, null, 2);
+}
+
+/**
  * Generate report in specified format
  */
 export function generateReport(output: ScanOutput, format: ReportFormat): string {
@@ -226,6 +342,8 @@ export function generateReport(output: ScanOutput, format: ReportFormat): string
       return generateHtmlReport(output);
     case 'md':
       return generateMarkdownReport(output);
+    case 'sarif':
+      return generateSarifReport(output);
     case 'json':
     default:
       return JSON.stringify(output, null, 2);

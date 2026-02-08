@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { generateReport, generateMarkdownReport, generateHtmlReport } from '../report.js';
+import { generateReport, generateMarkdownReport, generateHtmlReport, generateSarifReport } from '../report.js';
 import type { ScanOutput, ScanResult } from '../types.js';
 
 // Helper to create mock scan result
@@ -241,5 +241,104 @@ describe('generateHtmlReport', () => {
     const html = generateHtmlReport(output);
     // POC might be included in the output
     expect(html).toContain('vulnerable');
+  });
+});
+
+describe('generateSarifReport', () => {
+  it('should generate valid SARIF 2.1.0 structure', () => {
+    const output = createMockOutput([
+      createMockResult({
+        subdomain: 'vuln.example.com',
+        status: 'vulnerable',
+        service: 'AWS S3',
+        cname: 'vuln.example.com.s3.amazonaws.com',
+        evidence: ['CNAME points to S3', 'NoSuchBucket response'],
+        risk: 'critical',
+      })
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+
+    expect(sarif.$schema).toContain('sarif-schema-2.1.0');
+    expect(sarif.version).toBe('2.1.0');
+    expect(sarif.runs).toHaveLength(1);
+    expect(sarif.runs[0].tool.driver.name).toBe('SubVet');
+    expect(sarif.runs[0].tool.driver.rules).toHaveLength(1);
+    expect(sarif.runs[0].results).toHaveLength(1);
+  });
+
+  it('should map status to correct SARIF levels', () => {
+    const output = createMockOutput([
+      createMockResult({ subdomain: 'a.example.com', status: 'vulnerable', service: 'S3', risk: 'critical' }),
+      createMockResult({ subdomain: 'b.example.com', status: 'likely', service: 'Heroku', risk: 'high' }),
+      createMockResult({ subdomain: 'c.example.com', status: 'potential', service: 'Unknown', risk: 'medium' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    const levels = sarif.runs[0].results.map((r: any) => r.level);
+    expect(levels).toEqual(['error', 'error', 'warning']);
+  });
+
+  it('should skip not_vulnerable results', () => {
+    const output = createMockOutput([
+      createMockResult({ status: 'not_vulnerable' }),
+      createMockResult({ subdomain: 'vuln.example.com', status: 'vulnerable', service: 'S3', risk: 'critical' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results).toHaveLength(1);
+  });
+
+  it('should generate correct ruleId from service name', () => {
+    const output = createMockOutput([
+      createMockResult({ subdomain: 'a.example.com', status: 'vulnerable', service: 'AWS S3', risk: 'critical' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results[0].ruleId).toBe('subvet/aws-s3');
+    expect(sarif.runs[0].tool.driver.rules[0].id).toBe('subvet/aws-s3');
+  });
+
+  it('should include domain as artifact location', () => {
+    const output = createMockOutput([
+      createMockResult({ subdomain: 'vuln.example.com', status: 'vulnerable', service: 'S3', risk: 'critical' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe('vuln.example.com');
+  });
+
+  it('should include evidence in message', () => {
+    const output = createMockOutput([
+      createMockResult({
+        subdomain: 'vuln.example.com',
+        status: 'vulnerable',
+        service: 'S3',
+        evidence: ['CNAME match', 'NoSuchBucket'],
+        risk: 'critical',
+      }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results[0].message.text).toContain('CNAME match');
+    expect(sarif.runs[0].results[0].message.text).toContain('NoSuchBucket');
+  });
+
+  it('should work via generateReport with sarif format', () => {
+    const output = createMockOutput([createMockResult({ status: 'vulnerable', service: 'S3', risk: 'critical' })]);
+    const report = generateReport(output, 'sarif');
+    const sarif = JSON.parse(report);
+    expect(sarif.version).toBe('2.1.0');
+  });
+
+  it('should handle empty results', () => {
+    const output = createMockOutput([]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results).toHaveLength(0);
+    expect(sarif.runs[0].tool.driver.rules).toHaveLength(0);
+  });
+
+  it('should deduplicate rules for same service', () => {
+    const output = createMockOutput([
+      createMockResult({ subdomain: 'a.example.com', status: 'vulnerable', service: 'AWS S3', risk: 'critical' }),
+      createMockResult({ subdomain: 'b.example.com', status: 'vulnerable', service: 'AWS S3', risk: 'critical' }),
+    ]);
+    const sarif = JSON.parse(generateSarifReport(output));
+    expect(sarif.runs[0].results).toHaveLength(2);
+    expect(sarif.runs[0].tool.driver.rules).toHaveLength(1);
   });
 });

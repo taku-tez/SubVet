@@ -48,7 +48,7 @@ program
   .option('-o, --output <file>', 'Write JSON output to file')
   .option('--pretty', 'Pretty print JSON output')
   .option('--summary', 'Show summary only (no full results)')
-  .option('--report <format>', 'Generate report (html, md, json)')
+  .option('--report <format>', 'Generate report (html, md, json, sarif)')
   .option('--diff <baseline>', 'Compare against baseline JSON file (CI mode)')
   .option('--diff-json', 'Output diff as JSON (with --diff)')
   .option('--slack-webhook <url>', 'Send results to Slack webhook')
@@ -79,7 +79,7 @@ program
       }
 
       // Validate enum options
-      const validReportFormats = ['json', 'md', 'html'];
+      const validReportFormats = ['json', 'md', 'html', 'sarif'];
       if (options.report && !validReportFormats.includes(options.report)) {
         console.error(chalk.red(`Error: Invalid --report format "${options.report}". Must be one of: ${validReportFormats.join(', ')}`));
         process.exit(1);
