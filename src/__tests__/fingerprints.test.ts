@@ -86,6 +86,24 @@ describe('findServiceByCname', () => {
     expect(result?.service).toBe('Vercel');
   });
 
+  it('should find Marketo by CNAME (mktoedge)', () => {
+    const result = findServiceByCname('ab62.mktoedge.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Marketo');
+  });
+
+  it('should find Marketo by CNAME (mktoweb)', () => {
+    const result = findServiceByCname('455-emf-061.mktoweb.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Marketo');
+  });
+
+  it('should find Marketo by CNAME (mkto- prefix)', () => {
+    const result = findServiceByCname('mkto-ab620141.com');
+    expect(result).not.toBeNull();
+    expect(result?.service).toBe('Marketo');
+  });
+
   it('should find Shopify by CNAME', () => {
     const result = findServiceByCname('shop.myshopify.com');
     expect(result).not.toBeNull();

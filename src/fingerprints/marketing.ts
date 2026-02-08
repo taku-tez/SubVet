@@ -6,6 +6,30 @@ import type { ServiceFingerprint } from '../types.js';
 
 export const marketingFingerprints: ServiceFingerprint[] = [
   {
+    service: 'Marketo',
+    description: 'Adobe Marketo Engage (marketing automation)',
+    cnames: ['*.mktoedge.com', '*.mktoweb.com', 'mkto-*.com'],
+    fingerprints: [
+      // Pattern A: 404 page with "content does not exist" (e.g. em.reckoner.io)
+      { type: 'http_body', pattern: 'The content you are looking for does not exist', weight: 9 },
+      // Pattern B: Redirect to Marketo login (e.g. pages.3-shake.com)
+      { type: 'http_header', header: 'location', pattern: 'marketo\\.com', weight: 8 },
+      // Pattern C: Marketo login page rendered directly
+      { type: 'http_body', pattern: 'Login | Marketo', weight: 7 },
+      { type: 'http_body', pattern: 'mktLogin', weight: 6 },
+      { type: 'http_body', pattern: 'Adobe Marketo Engage', weight: 5 },
+    ],
+    negativePatterns: [
+      // Active Marketo forms = service is in use
+      { type: 'http_body', pattern: 'mktoForm', description: 'Active Marketo form detected' },
+      { type: 'http_body', pattern: 'MktoForms2', description: 'Active Marketo forms library' },
+    ],
+    takeoverPossible: false,
+    minConfidence: 5,
+    documentation: 'Stale CNAME to Marketo - service no longer active. Remove DNS record.',
+    poc: 'Remove stale DNS CNAME record pointing to Marketo'
+  },
+  {
     service: 'Unbounce',
     description: 'Unbounce landing pages',
     cnames: ['*.unbouncepages.com'],

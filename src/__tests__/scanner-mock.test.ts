@@ -715,4 +715,149 @@ describe('Scanner vulnerability detection', () => {
       expect(result.status).toBe('vulnerable');
     });
   });
+
+  describe('Marketo stale CNAME detection', () => {
+    it('should detect stale Marketo CNAME with login page', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'pages.example.com',
+        records: [
+          { type: 'CNAME', value: 'ab62.mktoedge.com' },
+          { type: 'A', value: '104.16.96.80' }
+        ],
+        cname: 'ab62.mktoedge.com',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://pages.example.com',
+        status: 200,
+        body: '<title>Login | Marketo</title><form id="mktLogin"><img src="adobe-login-brand-mark.svg"/><span>Adobe Marketo Engage</span></form>',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('pages.example.com');
+
+      expect(result.service).toBe('Marketo');
+      expect(result.status).toBe('potential');
+      expect(result.risk).toBe('medium');
+      expect(result.evidence.some(e => e.includes('Marketo'))).toBe(true);
+    });
+
+    it('should detect stale Marketo CNAME with 404 page', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'em.example.com',
+        records: [
+          { type: 'CNAME', value: 'mkto-ab620141.com' },
+          { type: 'A', value: '104.17.73.206' }
+        ],
+        cname: 'mkto-ab620141.com',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://em.example.com',
+        status: 200,
+        body: '<h1>Page not found</h1> The content you are looking for does not exist.',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('em.example.com');
+
+      expect(result.service).toBe('Marketo');
+      expect(result.status).toBe('potential');
+    });
+
+    it('should NOT flag active Marketo with forms', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'landing.example.com',
+        records: [
+          { type: 'CNAME', value: 'ab62.mktoedge.com' },
+          { type: 'A', value: '104.16.96.80' }
+        ],
+        cname: 'ab62.mktoedge.com',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://landing.example.com',
+        status: 200,
+        body: '<html><head><script src="MktoForms2.js"></script></head><body><form id="mktoForm_1234">Active landing page</form></body></html>',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('landing.example.com');
+
+      expect(result.status).toBe('not_vulnerable');
+    });
+  });
+
+  describe('Generic stale CNAME detection', () => {
+    it('should detect stale CNAME redirecting to SaaS login', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'old.example.com',
+        records: [
+          { type: 'CNAME', value: 'custom.salesforce.com' },
+          { type: 'A', value: '1.2.3.4' }
+        ],
+        cname: 'custom.salesforce.com',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://old.example.com',
+        status: 302,
+        body: '',
+        headers: { location: 'https://login.salesforce.com/' }
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('old.example.com');
+
+      expect(result.status).toBe('potential');
+      expect(result.evidence.some(e => e.includes('Stale CNAME') || e.includes('Salesforce'))).toBe(true);
+    });
+
+    it('should detect stale CNAME with SaaS 404 on known domain', async () => {
+      mockDnsResolve.mockResolvedValue({
+        subdomain: 'old.example.com',
+        records: [
+          { type: 'CNAME', value: 'old.netlify.app' },
+          { type: 'A', value: '1.2.3.4' }
+        ],
+        cname: 'old.netlify.app',
+        hasIpv4: true,
+        hasIpv6: false,
+        resolved: true,
+        nxdomain: false
+      });
+
+      mockHttpProbe.mockResolvedValue({
+        url: 'https://old.example.com',
+        status: 404,
+        body: 'Not Found',
+        headers: {}
+      });
+
+      const scanner = new Scanner({ timeout: 5000 });
+      const result = await scanner.scanOne('old.example.com');
+
+      expect(result.status).toBe('potential');
+      expect(result.evidence.some(e => e.includes('Stale CNAME'))).toBe(true);
+    });
+  });
 });

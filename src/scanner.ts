@@ -166,6 +166,20 @@ export class Scanner {
           result.risk = 'medium';
         }
       }
+
+      // Step 4c: Stale CNAME detection (generic)
+      // If CNAME exists but status is safe or unknown, check for signs of abandoned SaaS config
+      if (result.cname && (result.status === 'not_vulnerable' || result.status === 'unknown')) {
+        if (result.http) {
+          const staleChecks = this.checkStaleCname(result.cname, result.http, result.dns.nxdomain);
+          if (staleChecks.length > 0) {
+            result.evidence.push(...staleChecks);
+            result.status = 'potential';
+            result.risk = 'medium';
+            result.service = result.service ?? 'Stale CNAME';
+          }
+        }
+      }
     }
 
     // Step 5: Check for dangling NS delegation
@@ -471,6 +485,116 @@ export class Scanner {
     }
 
     return patterns;
+  }
+
+  /**
+   * Check for stale CNAME records pointing to SaaS services no longer in use.
+   * Generic detection that works across unknown services.
+   */
+  private checkStaleCname(
+    cname: string | null,
+    http: { status: number | null; body: string | null; headers: Record<string, string> },
+    _nxdomain: boolean
+  ): string[] {
+    if (!cname) return [];
+    const checks: string[] = [];
+
+    // Pattern 1: CNAME exists but target returns NXDOMAIN
+    // (already handled by main flow, but reinforce)
+
+    // Pattern 2: Redirect to SaaS login/default page
+    const location = http.headers['location'] ?? '';
+    const saasLoginRedirects = [
+      { pattern: /marketo\.com/i, name: 'Marketo' },
+      { pattern: /salesforce\.com/i, name: 'Salesforce' },
+      { pattern: /pardot\.com/i, name: 'Pardot' },
+      { pattern: /hubspot\.com/i, name: 'HubSpot' },
+      { pattern: /zendesk\.com\/auth/i, name: 'Zendesk' },
+      { pattern: /freshdesk\.com\/login/i, name: 'Freshdesk' },
+      { pattern: /intercom\.com/i, name: 'Intercom' },
+      { pattern: /mailchimp\.com/i, name: 'Mailchimp' },
+      { pattern: /sendgrid\.(com|net)/i, name: 'SendGrid' },
+    ];
+
+    for (const { pattern, name } of saasLoginRedirects) {
+      if (pattern.test(location)) {
+        checks.push(`Stale CNAME: Redirects to ${name} login/default page`);
+        return checks;
+      }
+    }
+
+    // Pattern 3: SaaS default/error pages served (not customer content)
+    if (http.body) {
+      const saasDefaultPages = [
+        { pattern: /Login \| Marketo/i, name: 'Marketo' },
+        { pattern: /Pardot\s*·?\s*Login/i, name: 'Pardot' },
+        { pattern: /There isn't a .* page here/i, name: 'HubSpot' },
+        { pattern: /Domain not found.*hubspot/i, name: 'HubSpot' },
+        { pattern: /This UserVoice subdomain is currently available/i, name: 'UserVoice' },
+        { pattern: /Help Center Closed/i, name: 'Zendesk' },
+        { pattern: /project not found/i, name: 'Unknown SaaS' },
+        { pattern: /This page is reserved for/i, name: 'Unknown SaaS' },
+        { pattern: /is not a registered namespace/i, name: 'Unknown SaaS' },
+      ];
+
+      for (const { pattern, name } of saasDefaultPages) {
+        if (pattern.test(http.body)) {
+          checks.push(`Stale CNAME: ${name} default/error page detected`);
+          return checks;
+        }
+      }
+
+      // Pattern 4: CNAME to known SaaS domain but response is a generic error
+      const knownSaasDomains = [
+        /\.cloudfront\.net$/i,
+        /\.herokuapp\.com$/i,
+        /\.azurewebsites\.net$/i,
+        /\.trafficmanager\.net$/i,
+        /\.cloudapp\.azure\.com$/i,
+        /\.ghost\.io$/i,
+        /\.wordpress\.com$/i,
+        /\.shopify\.com$/i,
+        /\.myshopify\.com$/i,
+        /\.squarespace\.com$/i,
+        /\.webflow\.io$/i,
+        /\.netlify\.app$/i,
+        /\.vercel\.app$/i,
+        /\.firebaseapp\.com$/i,
+        /\.zendesk\.com$/i,
+        /\.freshdesk\.com$/i,
+        /\.intercom\.io$/i,
+        /\.statuspage\.io$/i,
+        /\.mktoedge\.com$/i,
+        /\.mktoweb\.com$/i,
+        /\.pardot\.com$/i,
+        /\.hubspot\.net$/i,
+        /\.hs-sites\.com$/i,
+        /\.sendgrid\.net$/i,
+      ];
+
+      const isKnownSaas = knownSaasDomains.some(p => p.test(cname));
+      if (isKnownSaas && http.status !== null) {
+        // CNAME to known SaaS + error status = likely stale
+        if (http.status === 404 || http.status === 403 || http.status === 410) {
+          // But only if body doesn't contain real content (>1KB of meaningful text)
+          const bodyLen = (http.body ?? '').length;
+          const hasMinimalContent = bodyLen < 2000;
+          if (hasMinimalContent) {
+            checks.push(`Stale CNAME: ${cname} returns ${http.status} with minimal content`);
+          }
+        }
+        // Redirect to SaaS root (not a specific page) = not configured
+        if ((http.status === 301 || http.status === 302) && location) {
+          const redirectsToSaasRoot = /^https?:\/\/[^/]+\/?$/.test(location) || 
+                                       /login|signin|auth/i.test(location);
+          if (redirectsToSaasRoot) {
+            checks.push(`Stale CNAME: ${cname} redirects to SaaS root/login (${http.status})`);
+          }
+        }
+      }
+    }
+
+    return checks;
   }
 
   /**
