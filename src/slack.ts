@@ -37,13 +37,17 @@ export async function sendSlackWebhook(
   message: SlackMessage
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(message),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
 
     if (!response.ok) {
       const text = await response.text();
@@ -52,7 +56,11 @@ export async function sendSlackWebhook(
 
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: (error as Error).message };
+    const err = error as Error;
+    if (err.name === 'AbortError') {
+      return { ok: false, error: 'Slack webhook timeout' };
+    }
+    return { ok: false, error: err.message };
   }
 }
 
@@ -61,13 +69,15 @@ export async function sendSlackWebhook(
  */
 export function formatScanMessage(output: ScanOutput): SlackMessage {
   const { summary } = output;
-  const hasIssues = summary.vulnerable > 0 || summary.likely > 0;
+  const hasIssues = summary.vulnerable > 0 || summary.likely > 0 || summary.potential > 0;
   
   const emoji = summary.vulnerable > 0 ? '🚨' : 
-                summary.likely > 0 ? '⚠️' : '✅';
+                summary.likely > 0 ? '⚠️' :
+                summary.potential > 0 ? '🟡' : '✅';
   
   const statusText = summary.vulnerable > 0 ? 'VULNERABILITIES FOUND' :
                      summary.likely > 0 ? 'Likely Issues Found' :
+                     summary.potential > 0 ? 'Potential Issues Found' :
                      'All Clear';
 
   const text = `${emoji} SubVet Scan: ${statusText}`;
@@ -97,11 +107,11 @@ export function formatScanMessage(output: ScanOutput): SlackMessage {
   // Add details for vulnerable/likely findings
   if (hasIssues) {
     const issues = output.results.filter(
-      r => r.status === 'vulnerable' || r.status === 'likely'
+      r => r.status === 'vulnerable' || r.status === 'likely' || r.status === 'potential'
     );
 
     const issueLines = issues.slice(0, 10).map(r => {
-      const icon = r.status === 'vulnerable' ? '🔴' : '🟠';
+      const icon = r.status === 'vulnerable' ? '🔴' : r.status === 'likely' ? '🟠' : '🟡';
       const service = r.service ? ` (${r.service})` : '';
       return `${icon} \`${r.subdomain}\`${service}`;
     });
@@ -170,6 +180,8 @@ export function formatDiffMessage(diff: DiffResult): SlackMessage {
         { type: 'mrkdwn', text: `*🟠 New Likely:*\n${diff.summary.newLikely}` },
         { type: 'mrkdwn', text: `*🟡 New Potential:*\n${diff.summary.newPotential}` },
         { type: 'mrkdwn', text: `*✅ Resolved:*\n${diff.summary.resolved}` },
+        { type: 'mrkdwn', text: `*➕ Added (safe):*\n${diff.summary.addedSafe}` },
+        { type: 'mrkdwn', text: `*➖ Removed (safe):*\n${diff.summary.removedSafe}` },
         { type: 'mrkdwn', text: `*Unchanged:*\n${diff.summary.unchanged}` },
       ],
     },

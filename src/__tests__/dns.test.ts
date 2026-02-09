@@ -383,3 +383,28 @@ describe('DnsResolver advanced', () => {
     });
   });
 });
+
+describe('domainExistsForReference', () => {
+  it('should return true for domain with A records', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const exists = await resolver.domainExistsForReference('google.com');
+    expect(exists).toBe(true);
+  });
+
+  it('should return false for completely nonexistent domain', async () => {
+    const resolver = new DnsResolver({ timeout: 5000 });
+    const exists = await resolver.domainExistsForReference('this-domain-does-not-exist-subvet-test-12345.com');
+    expect(exists).toBe(false);
+  });
+
+  it('should not false-positive on domain with TXT but no A/AAAA', async () => {
+    // This tests the core fix: a domain that has TXT records but no A/AAAA
+    // should NOT be considered dangling for TXT reference purposes
+    const resolver = new DnsResolver({ timeout: 5000 });
+    // _dmarc records typically have TXT but no A/AAAA
+    // We use a well-known domain's _dmarc record as test
+    const exists = await resolver.domainExistsForReference('_dmarc.google.com');
+    // _dmarc.google.com has TXT records → should exist
+    expect(exists).toBe(true);
+  });
+});

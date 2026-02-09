@@ -461,11 +461,11 @@ export class DnsResolver {
 
       result.txtReferences = [...referencedDomains];
 
-      // Check if referenced domains resolve
+      // Check if referenced domains exist (A/AAAA, CNAME, or TXT)
       const danglingChecks = await Promise.all(
         [...referencedDomains].map(async (domain) => ({
           domain,
-          isDangling: (await this.targetResolves(domain)) === 'not_found'
+          isDangling: !(await this.domainExistsForReference(domain))
         }))
       );
       const dangling = danglingChecks.filter(c => c.isDangling).map(c => c.domain);
@@ -535,6 +535,40 @@ export class DnsResolver {
     }
     const status = await this.targetResolves(this.normalizeDomain(target));
     return status === 'not_found';
+  }
+
+  /**
+   * Check if a domain exists for TXT reference validation.
+   * Unlike targetResolves (A/AAAA only), this also checks CNAME and TXT records
+   * to avoid false positives on domains that exist but lack A/AAAA records.
+   * Returns true if the domain has any DNS presence, false only on permanent NXDOMAIN.
+   */
+  async domainExistsForReference(domain: string): Promise<boolean> {
+    // First try A/AAAA
+    const ipStatus = await this.targetResolves(domain);
+    if (ipStatus === 'resolved') return true;
+    if (ipStatus === 'transient_error') return true; // Don't treat transient errors as dangling
+
+    // A/AAAA not found — check CNAME and TXT
+    const [cnameResult, txtResult] = await Promise.allSettled([
+      this.withTimeout(resolveCname(domain)),
+      this.withTimeout(resolveTxt(domain)),
+    ]);
+
+    if (cnameResult.status === 'fulfilled' && cnameResult.value?.length > 0) return true;
+    if (txtResult.status === 'fulfilled' && txtResult.value?.length > 0) return true;
+
+    // Check for transient errors in CNAME/TXT lookups
+    for (const r of [cnameResult, txtResult]) {
+      if (r.status === 'rejected') {
+        const err = r.reason as NodeJS.ErrnoException;
+        if (err.code === 'SERVFAIL' || err.code === 'ESERVFAIL' || err.message === 'DNS timeout') {
+          return true; // Transient — don't mark as dangling
+        }
+      }
+    }
+
+    return false;
   }
 
   /**

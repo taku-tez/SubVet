@@ -46,10 +46,23 @@ export function applyWildcardAdjustment(result: ScanResult, wildcardInfo: Wildca
   const partialMatch = matchCount > 0 && matchCount < allIpRecords.length;
 
   if (allMatch && !hasCname) {
-    // All IPs match wildcard set, no CNAME → almost certainly just wildcard response
-    result.status = 'not_vulnerable';
-    result.risk = 'info';
-    result.evidence.push(`All IPs match wildcard set [${wildcardIps.join(', ')}] — safe`);
+    // All IPs match wildcard set, no CNAME → likely just wildcard response
+    // But if HTTP fingerprint gave strong evidence, don't downgrade
+    const confEvidence = result.evidence.find(e => e.startsWith('Confidence:'));
+    const confMatch = confEvidence?.match(/Confidence: (\d+)\/10/);
+    const confidence = confMatch ? parseInt(confMatch[1], 10) : 0;
+    const hasRequiredMet = result.evidence.some(e => e.includes('Required fingerprint not matched')) === false;
+    const hasStrongHttpEvidence = hasRequiredMet && confidence >= 7;
+
+    if (hasStrongHttpEvidence && (result.status === 'vulnerable' || result.status === 'likely')) {
+      // Keep status but add wildcard warning
+      result.evidence.push(`All IPs match wildcard set [${wildcardIps.join(', ')}] — wildcard detected, verify manually`);
+    } else {
+      // Weak evidence or unknown/potential — safe to downgrade
+      result.status = 'not_vulnerable';
+      result.risk = 'info';
+      result.evidence.push(`All IPs match wildcard set [${wildcardIps.join(', ')}] — safe`);
+    }
   } else if (partialMatch && !hasCname) {
     // Partial IP match — reduce confidence but keep status
     result.evidence.push(`Partial wildcard IP match (${matchCount}/${allIpRecords.length}) — confidence reduced`);

@@ -402,3 +402,92 @@ describe('formatDiffText', () => {
     expect(text).toContain('Was: VULNERABLE');
   });
 });
+
+describe('compareScans - addedSafe / removedSafe', () => {
+  it('should count new safe-only entries as addedSafe', () => {
+    const baseline = createScanOutput([
+      createScanResult('existing.example.com', 'not_vulnerable'),
+    ]);
+    const current = createScanOutput([
+      createScanResult('existing.example.com', 'not_vulnerable'),
+      createScanResult('new-safe.example.com', 'not_vulnerable'),
+    ]);
+
+    const diff = compareScans(baseline, current);
+    expect(diff.summary.addedSafe).toBe(1);
+    expect(diff.summary.newVulnerable).toBe(0);
+    expect(diff.summary.newLikely).toBe(0);
+    expect(diff.summary.newPotential).toBe(0);
+    expect(diff.entries).toHaveLength(0); // safe entries don't create diff entries
+  });
+
+  it('should count removed safe-only entries as removedSafe', () => {
+    const baseline = createScanOutput([
+      createScanResult('existing.example.com', 'not_vulnerable'),
+      createScanResult('will-remove.example.com', 'not_vulnerable'),
+    ]);
+    const current = createScanOutput([
+      createScanResult('existing.example.com', 'not_vulnerable'),
+    ]);
+
+    const diff = compareScans(baseline, current);
+    expect(diff.summary.removedSafe).toBe(1);
+    expect(diff.summary.resolved).toBe(0);
+  });
+
+  it('should handle no-risk changes correctly', () => {
+    const baseline = createScanOutput([
+      createScanResult('a.example.com', 'not_vulnerable'),
+      createScanResult('b.example.com', 'not_vulnerable'),
+    ]);
+    const current = createScanOutput([
+      createScanResult('a.example.com', 'not_vulnerable'),
+      createScanResult('c.example.com', 'not_vulnerable'),
+    ]);
+
+    const diff = compareScans(baseline, current);
+    expect(diff.summary.addedSafe).toBe(1);    // c is new safe
+    expect(diff.summary.removedSafe).toBe(1);   // b was removed safe
+    expect(diff.summary.unchanged).toBe(1);      // a unchanged
+    expect(diff.summary.newVulnerable).toBe(0);
+    expect(diff.summary.resolved).toBe(0);
+  });
+});
+
+describe('formatDiffText - addedSafe / removedSafe', () => {
+  it('should show addedSafe count', () => {
+    const diff: DiffResult = {
+      version: '0.10.0',
+      timestamp: '2026-02-09T00:00:00Z',
+      baseline: { timestamp: '2026-02-08T00:00:00Z', total: 5 },
+      current: { timestamp: '2026-02-09T00:00:00Z', total: 7 },
+      summary: {
+        newVulnerable: 0, newLikely: 0, newPotential: 0,
+        resolved: 0, unchanged: 5, statusChanged: 0,
+        addedSafe: 2, removedSafe: 0,
+      },
+      entries: [],
+    };
+
+    const text = formatDiffText(diff);
+    expect(text).toContain('Added (safe):    2');
+  });
+
+  it('should show removedSafe count', () => {
+    const diff: DiffResult = {
+      version: '0.10.0',
+      timestamp: '2026-02-09T00:00:00Z',
+      baseline: { timestamp: '2026-02-08T00:00:00Z', total: 5 },
+      current: { timestamp: '2026-02-09T00:00:00Z', total: 4 },
+      summary: {
+        newVulnerable: 0, newLikely: 0, newPotential: 0,
+        resolved: 0, unchanged: 4, statusChanged: 0,
+        addedSafe: 0, removedSafe: 1,
+      },
+      entries: [],
+    };
+
+    const text = formatDiffText(diff);
+    expect(text).toContain('Removed (safe):  1');
+  });
+});

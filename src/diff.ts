@@ -22,6 +22,8 @@ export interface DiffSummary {
   resolved: number;
   unchanged: number;
   statusChanged: number;
+  addedSafe: number;
+  removedSafe: number;
 }
 
 export interface DiffResult {
@@ -64,6 +66,8 @@ export function compareScans(baseline: ScanOutput, current: ScanOutput): DiffRes
     resolved: 0,
     unchanged: 0,
     statusChanged: 0,
+    addedSafe: 0,
+    removedSafe: 0,
   };
 
   // Check current results against baseline
@@ -85,6 +89,8 @@ export function compareScans(baseline: ScanOutput, current: ScanOutput): DiffRes
         if (currentResult.status === 'vulnerable') summary.newVulnerable++;
         else if (currentResult.status === 'likely') summary.newLikely++;
         else if (currentResult.status === 'potential') summary.newPotential++;
+      } else {
+        summary.addedSafe++;
       }
     } else if (currentResult.status !== baselineResult.status) {
       // Status changed
@@ -145,6 +151,8 @@ export function compareScans(baseline: ScanOutput, current: ScanOutput): DiffRes
           service: baselineResult.service,
         });
         summary.resolved++;
+      } else {
+        summary.removedSafe++;
       }
     }
   }
@@ -222,6 +230,14 @@ export function formatDiffText(diff: DiffResult): string {
   
   if (diff.summary.statusChanged > 0) {
     lines.push(`🔄 Status changed:  ${diff.summary.statusChanged}`);
+  }
+
+  if (diff.summary.addedSafe > 0) {
+    lines.push(`➕ Added (safe):    ${diff.summary.addedSafe}`);
+  }
+
+  if (diff.summary.removedSafe > 0) {
+    lines.push(`➖ Removed (safe):  ${diff.summary.removedSafe}`);
   }
   
   lines.push(`   Unchanged:       ${diff.summary.unchanged}`);

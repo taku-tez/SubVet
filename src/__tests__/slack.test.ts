@@ -370,4 +370,47 @@ describe('sendSlackWebhook', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('Network error');
   });
+
+  it('should timeout after 10 seconds', async () => {
+    const abortError = new Error('The operation was aborted');
+    abortError.name = 'AbortError';
+    const mockFetch = vi.fn().mockRejectedValue(abortError);
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await sendSlackWebhook('https://hooks.slack.com/test', {
+      text: 'Test message',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Slack webhook timeout');
+  });
+});
+
+describe('formatScanMessage - potential issues', () => {
+  it('should not show All Clear when only potential issues exist', () => {
+    const output = createScanOutput([
+      createScanResult('pot.example.com', 'potential', 'Unknown SaaS'),
+    ]);
+
+    const message = formatScanMessage(output);
+
+    expect(message.text).not.toContain('All Clear');
+    expect(message.text).toContain('🟡');
+    expect(message.text).toContain('Potential Issues Found');
+
+    const blocksStr = JSON.stringify(message.blocks);
+    expect(blocksStr).toContain('pot.example.com');
+  });
+
+  it('should include potential findings in the findings section', () => {
+    const output = createScanOutput([
+      createScanResult('pot.example.com', 'potential', 'Stale CNAME'),
+      createScanResult('safe.example.com', 'not_vulnerable'),
+    ]);
+
+    const message = formatScanMessage(output);
+    const blocksStr = JSON.stringify(message.blocks);
+    expect(blocksStr).toContain('pot.example.com');
+    expect(blocksStr).toContain('🟡');
+  });
 });
