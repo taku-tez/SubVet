@@ -377,3 +377,21 @@ describe('fingerprint data quality', () => {
     }
   });
 });
+
+// Tests for checkGenericPatterns with empty body
+import { checkGenericPatterns } from '../fingerprint-checker.js';
+
+describe('checkGenericPatterns with empty body', () => {
+  it('should return empty array for empty body and null status', () => {
+    expect(checkGenericPatterns('', null)).toEqual([]);
+  });
+
+  it('should return empty array for empty body and 200 status', () => {
+    expect(checkGenericPatterns('', 200)).toEqual([]);
+  });
+
+  it('should detect patterns in body regardless of status', () => {
+    const result = checkGenericPatterns('NoSuchBucket', 404);
+    expect(result.length).toBeGreaterThan(0);
+  });
+});

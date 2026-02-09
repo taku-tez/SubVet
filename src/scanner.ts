@@ -179,8 +179,8 @@ export class Scanner {
       }
 
       // Generic checks for unrecognized services
-      if (!matchedService && result.http?.body) {
-        const genericChecks = checkGenericPatterns(result.http.body, result.http.status);
+      if (!matchedService && result.http) {
+        const genericChecks = checkGenericPatterns(result.http.body ?? '', result.http.status);
         if (genericChecks.length > 0) {
           result.evidence.push(...genericChecks);
           result.status = 'potential';

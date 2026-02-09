@@ -119,6 +119,29 @@ describe('isValidDomain', () => {
     expect(isValidDomain('-example.com')).toBe(false);
     expect(isValidDomain('example..com')).toBe(false);
   });
+
+  it('should reject trailing hyphen in label', () => {
+    expect(isValidDomain('a-.example.com')).toBe(false);
+    expect(isValidDomain('example-.com')).toBe(false);
+  });
+
+  it('should enforce label length 1..63', () => {
+    const label63 = 'a'.repeat(63);
+    const label64 = 'a'.repeat(64);
+    expect(isValidDomain(`${label63}.com`)).toBe(true);
+    expect(isValidDomain(`${label64}.com`)).toBe(false);
+  });
+
+  it('should enforce total length <= 253', () => {
+    // Build a domain just over 253 chars
+    const longDomain = Array(25).fill('abcdefghij').join('.') + '.com';
+    expect(longDomain.length).toBeGreaterThan(253);
+    expect(isValidDomain(longDomain)).toBe(false);
+  });
+
+  it('should reject empty string', () => {
+    expect(isValidDomain('')).toBe(false);
+  });
 });
 
 describe('unique', () => {

@@ -59,7 +59,12 @@ function convertRule(raw: YamlFingerprintRule): FingerprintRule {
   return rule;
 }
 
+const VALID_NEGATIVE_TYPES = new Set(['http_body', 'http_header', 'http_status']);
+
 function convertNegative(raw: YamlNegativePattern): NegativePattern {
+  if (!VALID_NEGATIVE_TYPES.has(raw.type)) {
+    console.warn(`[subvet] Warning: unknown negative pattern type "${raw.type}", expected http_body | http_header | http_status`);
+  }
   return {
     type: raw.type as 'http_body' | 'http_header' | 'http_status',
     pattern: raw.pattern,

@@ -262,6 +262,8 @@ describe('generateSarifReport', () => {
     expect(sarif.version).toBe('2.1.0');
     expect(sarif.runs).toHaveLength(1);
     expect(sarif.runs[0].tool.driver.name).toBe('SubVet');
+    expect(sarif.runs[0].tool.driver.version).toBeTruthy();
+    expect(sarif.runs[0].tool.driver.informationUri).toBeTruthy();
     expect(sarif.runs[0].tool.driver.rules).toHaveLength(1);
     expect(sarif.runs[0].results).toHaveLength(1);
   });

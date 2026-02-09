@@ -82,9 +82,18 @@ export function parseSubdomains(input: string): string[] {
  * Validate domain/subdomain format
  */
 export function isValidDomain(domain: string): boolean {
-  // Basic domain validation
-  const pattern = /^(?!-)[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
-  return pattern.test(domain);
+  if (!domain || domain.length > 253) return false;
+  const labels = domain.split('.');
+  if (labels.length < 2) return false;
+  for (const label of labels) {
+    if (label.length < 1 || label.length > 63) return false;
+    if (label.startsWith('-') || label.endsWith('-')) return false;
+    if (!/^[A-Za-z0-9-]+$/.test(label)) return false;
+  }
+  // TLD must be alphabetic
+  const tld = labels[labels.length - 1];
+  if (!/^[A-Za-z]{2,}$/.test(tld)) return false;
+  return true;
 }
 
 /**

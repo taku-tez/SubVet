@@ -177,3 +177,36 @@ describe('custom signatures directory', () => {
     expect(result.some(s => s.service === 'Custom Service')).toBe(true);
   });
 });
+
+describe('convertNegative type validation', () => {
+  it('should warn on invalid negative pattern type', () => {
+    const dir = join(tmpdir(), `subvet-neg-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const yaml = `
+- service: TestNeg
+  description: Test
+  takeoverPossible: true
+  cnames:
+    - "*.testneg.example.com"
+  fingerprints:
+    - type: http_body
+      pattern: "not found"
+  negativePatterns:
+    - type: http_cookie
+      pattern: "session"
+      description: "invalid type"
+`;
+    writeFileSync(join(dir, 'neg.yaml'), yaml);
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => warns.push(String(args[0]));
+    try {
+      const result = loadSignaturesFromDir(dir);
+      expect(result.length).toBe(1);
+      expect(warns.some(w => w.includes('unknown negative pattern type'))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
