@@ -1,7 +1,9 @@
 # SubVet 🔍
 
-**Subdomain Takeover Vulnerability Scanner**
+[![npm version](https://img.shields.io/npm/v/subvet)](https://www.npmjs.com/package/subvet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+**Subdomain Takeover Vulnerability Scanner**
 Fast, accurate subdomain takeover detection with 80+ service fingerprints, confidence scoring, and comprehensive DNS checks.
 
 ## Features
@@ -453,6 +455,10 @@ To add a new service:
    - `poc`: Exploitation steps
 3. Run tests: `npm test`
 4. Submit PR
+
+## Part of xxVet Series
+
+xxVet is a collection of 15 focused security CLI tools. See [full catalog](https://www.notion.so/xxVet-CLI-304b1e6bcbc2817abe62d4aecee9914a).
 
 ## License
 
